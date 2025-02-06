@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from tqdm import tqdm
 from dotenv import load_dotenv
+import argparse
 
 import pandas as pd
 
@@ -11,8 +12,8 @@ from sklearn.model_selection import train_test_split
 
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_scheduler
 from optimum.onnxruntime import ORTQuantizer, ORTModelForSequenceClassification
-from optimum.onnxruntime.configuration import AutoQuantizationConfig
-from onnxruntime import SessionOptions, GraphOptimizationLevel
+from optimum.onnxruntime.configuration import AutoQuantizationConfig, CalibrationConfig
+from onnxruntime import SessionOptions, GraphOptimizationLevel, ExecutionMode
 
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
@@ -35,7 +36,7 @@ class TrainModel():
         self.__device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         self.__type = model_type
-        self.__max_length = 256 if model_type == 'comment' else 40
+        self.__max_token_length = 256 if model_type == 'comment' else 40
         self.__epoches = epoches
         self.__lr = lr
         self.__batch_size = batch_size
@@ -43,7 +44,6 @@ class TrainModel():
         self.__model_path = f"{save_path}/{self.__type}_model"
         self.__tokenizer_path = f"{save_path}/{self.__type}_tokenizer"
         self.__onnx_save_path = f"{save_path}/{self.__type}_onnx"
-        self.__quantizer_path = f"{save_path}/{self.__type}_quantize"
 
         self.__assign_pandas_data(data)
         self.__load_model()
@@ -58,7 +58,7 @@ class TrainModel():
 
     def __assign_pandas_data(self, data: pd.core.frame.DataFrame):
         data_pd = data[f'{self.__type}'].dropna()
-                
+
         self.__label_pd = data[f'{self.__type}_class'].dropna()
         self.__unique_label_pd = self.__label_pd.unique()
 
@@ -69,26 +69,27 @@ class TrainModel():
         self.__train_datas, self.__eval_datas, self.__train_labels, self.__eval_labels = train_test_split(data_pd, self.__label_pd, test_size=0.1, shuffle=True)
 
     def __load_model(self):
-        if os.path.exists(self.__model_path) and os.path.exists(self.__tokenizer_path):
-            self.__model = AutoModelForSequenceClassification.from_pretrained(self.__model_path)
-            self.__tokenizer = AutoTokenizer.from_pretrained(self.__tokenizer_path)
-        else:
-            trainModelName = "beomi/KcELECTRA-base-v2022"
-            special_tokens = ['[TIME]', 'I9금', 'l9금', 'ㅣ9금', '인급동', '모드', 'ㅋㅋㅋ', 'ㅋㅋ', '얀데레', '썸네일', '썸넬']
-            self.__tokenizer = AutoTokenizer.from_pretrained(trainModelName)
-            self.__tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
+        # if os.path.exists(self.__model_path) and os.path.exists(self.__tokenizer_path):
+        #     self.__model = AutoModelForSequenceClassification.from_pretrained(self.__model_path)
+        #     self.__tokenizer = AutoTokenizer.from_pretrained(self.__tokenizer_path)
+        # else:
+        trainModelName = "klue/bert-base"
+        special_tokens = ['[TIME]', 'I9금', 'l9금', 'ㅣ9금', '인급동', '모드', 'ㅋㅋㅋ', 'ㅋㅋ', '얀데레', '썸네일', '썸넬', '추카', '치카', 'tlqkf', '카와이', '포카', '릴파', '릴스', '프세카', '케이카', '엔카', '쏘카', '그린카', '양카',
+                            'MS', 'DOS', '19_금', 'I9_금', 'l9_금', '1_9금', 'I_9금', 'l_9금', '강원랜드']
+        self.__tokenizer = AutoTokenizer.from_pretrained(trainModelName)
+        self.__tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
 
-            self.__model = AutoModelForSequenceClassification.from_pretrained(trainModelName, num_labels=len(self.__unique_label_pd.tolist()))
-            self.__model.resize_token_embeddings(len(self.__tokenizer))
+        self.__model = AutoModelForSequenceClassification.from_pretrained(trainModelName, num_labels=len(self.__unique_label_pd.tolist()))
+        self.__model.resize_token_embeddings(len(self.__tokenizer))
 
         self.__optimizer = AdamW(self.__model.parameters(), lr=self.__lr)
 
     def __get_loader(self):
         train_encoding = self.__tokenizer(
-            list(self.__train_datas), truncation=True, padding=True, max_length=self.__max_length, add_special_tokens=True, return_tensors='pt'
+            list(self.__train_datas), truncation=True, padding=True, max_length=self.__max_token_length, add_special_tokens=True, return_tensors='pt'
         )
         eval_encoding = self.__tokenizer(
-            list(self.__eval_datas), truncation=True, padding=True, max_length=self.__max_length, add_special_tokens=True, return_tensors='pt'
+            list(self.__eval_datas), truncation=True, padding=True, max_length=self.__max_token_length, add_special_tokens=True, return_tensors='pt'
         )
 
         train_datasets = CustomDataset(train_encoding, self.__train_labels.tolist(), self.__label_index_map)
@@ -148,20 +149,13 @@ class TrainModel():
 
         sess_options = SessionOptions()
         sess_options.graph_optimization_level = GraphOptimizationLevel.ORT_ENABLE_ALL
-        sess_options.intra_op_num_threads = 1
 
-        ort_model = ORTModelForSequenceClassification.from_pretrained(self.__model_path, export=True)
+        ort_model = ORTModelForSequenceClassification.from_pretrained(self.__model_path, export=True, use_io_binding=True)
         ort_model.save_pretrained(self.__onnx_save_path, session_options=sess_options)
         print(f"{self.__type} onnx saved")
 
-        qconfig = AutoQuantizationConfig.arm64(is_static=False)
-
-        quantizer = ORTQuantizer.from_pretrained(self.__onnx_save_path)
-        quantizer.quantize(save_dir=self.__quantizer_path, quantization_config=qconfig)
-        print(f"{self.__type} quantizer saved")
-
     def predict(self, text):
-        tokens = self.__tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=self.__max_length)
+        tokens = self.__tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=self.__max_token_length)
         tokens = {key: val.to(self.__device) for key, val in tokens.items()}
 
         with torch.no_grad():
@@ -179,16 +173,21 @@ def delete_model(model):
 from google_drive_helper import GoogleDriveHelper
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-t', '--train', action='store_true', help='훈련을 진행합니다.')
+    parser.add_argument('-u', '--upload', action='store_true', help='생성한 모델들을 업로드합니다.')
+
+    args = parser.parse_args()
+    if not any(vars(args).values()):
+        parser.print_help()
+        exit(0)
+
     # save_root_path = '/content/drive/MyDrive/comment-filtering'
     # data = pd.read_csv("./dataset.csv", usecols=["nickname", "comment", "nickname_class", "comment_class"])
 
     save_root_path = Path(os.path.join(os.path.expanduser('~'), 'youtube-comment-colab', 'model'))
     if not save_root_path.exists():
         save_root_path.mkdir()
-    data = pd.read_csv(os.path.join(save_root_path, "dataset.csv"), usecols=["nickname", "comment", "nickname_class", "comment_class"])
-
-    data['nickname'] = data['nickname'].str.replace(r'[-._]', ' ', regex=True)
-    data['comment'] = data['comment'].str.replace(r'\d+:(?:\d+:?)?\d+', '[TIME]', regex=True)
 
     project_root_dir = os.path.dirname(os.path.abspath(__file__))
     load_dotenv(os.path.join(project_root_dir, "env", ".env"))
@@ -206,24 +205,31 @@ if __name__ == "__main__":
                             local_target_root_dir_name='model',
                             drive_root_folder_name='comment-filtering')
     
-    helper.print_directory_metadata()
+    # helper.print_directory_metadata()
     helper.download_all_files('dataset.csv')
 
-    torch.cuda.empty_cache()
-    nickname_model = TrainModel(data, "nickname", save_path=save_root_path, epoches=5)
-    nickname_model.train()
-    nickname_model.evaluate()
-    nickname_model.save()
-    torch.cuda.empty_cache()
+    if args.train:
+        data = pd.read_csv(os.path.join(save_root_path, "dataset.csv"), usecols=["nickname", "comment", "nickname_class", "comment_class"])
 
-    torch.cuda.empty_cache()
-    comment_model = TrainModel(data, "comment", save_path=save_root_path, epoches=5)
-    comment_model.train()
-    comment_model.evaluate()
-    comment_model.save()
-    torch.cuda.empty_cache()
+        data['nickname'] = data['nickname'].str.replace(r"-[a-zA-Z0-9]{3}$|-[a-zA-Z0-9]{5}$", "", regex=True).replace(r'[-._]', ' ', regex=True)
+        data['comment'] = data['comment'].str.replace(r'\d+:(?:\d+:?)?\d+', '[TIME]', regex=True).replace(r'chill', '칠', regex=True)
 
-    helper.upload_all_files()
+        torch.cuda.empty_cache()
+        nickname_model = TrainModel(data, "nickname", save_path=save_root_path, epoches=5)
+        nickname_model.train()
+        nickname_model.evaluate()
+        nickname_model.save()
+        torch.cuda.empty_cache()
+
+        torch.cuda.empty_cache()
+        comment_model = TrainModel(data, "comment", save_path=save_root_path, epoches=5)
+        comment_model.train()
+        comment_model.evaluate()
+        comment_model.save()
+        torch.cuda.empty_cache()
+
+    if args.upload:
+        helper.upload_all_files()
 
     # for folder_name, inner_data in helper.directory_struct.items():
     #     if folder_name == 'comment-filtering':

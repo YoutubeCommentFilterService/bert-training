@@ -200,8 +200,6 @@ class GoogleDriveHelper():
                                                 filename=filename,
                                                 file_size=file_path.stat().st_size)
             
-            print(upload_type)
-            
             if upload_type == 'c':
                 self.directory_struct[parent_folder_name][filename] = {'id': file_id,
                                                                         'parent_id': self.directory_struct[parent_folder_name]['id']}
@@ -228,7 +226,7 @@ class GoogleDriveHelper():
         return response.get('id', None)
 
     # ============================================ download file ============================================
-    def download_all_files(self, specific_file:str):
+    def download_all_files(self, specific_file:str|None=None):
         print('download starts...')
         self._download_recursive(folder_id=self.directory_struct[self.drive_root_folder_name].get('id'),
                                  curr_local_path=os.path.join(self.project_root_dir, 'model'),
@@ -243,7 +241,8 @@ class GoogleDriveHelper():
         for item in items:
             if item.get("mimeType") == self.mime_type.get('folder'): # folder
                 self._download_recursive(folder_id=item.get('id'), 
-                                         curr_local_path=os.path.join(curr_local_path, item.get('name')))
+                                         curr_local_path=os.path.join(curr_local_path, item.get('name')),
+                                         specific_file=specific_file)
             else: # file
                 self._download_file(file=item,
                                     curr_local_path=curr_local_path,
@@ -253,7 +252,7 @@ class GoogleDriveHelper():
         file_id = file.get('id')
         filename = file.get('name')
 
-        if specific_file and filename != specific_file:
+        if specific_file is not None and filename != specific_file:
             return
 
         request = self._file_service.get_media(fileId=file_id)

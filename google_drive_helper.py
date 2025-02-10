@@ -9,7 +9,9 @@ import json
 import io
 from tqdm import tqdm
 from pathlib import Path
-from typing import Any, Tuple
+from typing import Any, Tuple, Union
+
+import platform
 
 class GoogleDriveHelper():
     def __init__(self, project_root_dir:str, 
@@ -216,7 +218,7 @@ class GoogleDriveHelper():
         file_id = self.directory_struct[parent_folder_name][filename].get("id")
         return self._file_service.update(fileId=file_id, media_body=media), 'u'
     
-    def _upload_with_progress(self, request:Any, filename:str, file_size:int) -> str | None:
+    def _upload_with_progress(self, request:Any, filename:str, file_size:int) -> Union[str, None]:
         with tqdm(total=file_size, unit='B', unit_scale=True, desc=f'Upload - {filename}') as pbar:
             response = None
             while response is None:
@@ -226,14 +228,14 @@ class GoogleDriveHelper():
         return response.get('id', None)
 
     # ============================================ download file ============================================
-    def download_all_files(self, specific_file:str|None=None):
+    def download_all_files(self, specific_file:Union[str, None]=None):
         print('download starts...')
         self._download_recursive(folder_id=self.directory_struct[self.drive_root_folder_name].get('id'),
                                  curr_local_path=os.path.join(self.project_root_dir, 'model'),
                                  specific_file=specific_file)
         print('download finished!')
 
-    def _download_recursive(self, folder_id:str, curr_local_path:str, specific_file:str|None=None):
+    def _download_recursive(self, folder_id:str, curr_local_path:str, specific_file:Union[str, None]=None):
         if not os.path.exists(curr_local_path):
             os.mkdir(curr_local_path)
 
@@ -248,7 +250,7 @@ class GoogleDriveHelper():
                                     curr_local_path=curr_local_path,
                                     specific_file=specific_file)
 
-    def _download_file(self, file:dict, curr_local_path:str, specific_file:str|None=None):
+    def _download_file(self, file:dict, curr_local_path:str, specific_file:Union[str, None]=None):
         file_id = file.get('id')
         filename = file.get('name')
 

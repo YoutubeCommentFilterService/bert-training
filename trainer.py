@@ -11,9 +11,8 @@ import torch
 from sklearn.model_selection import train_test_split
 
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_scheduler
-from optimum.onnxruntime import ORTQuantizer, ORTModelForSequenceClassification
-from optimum.onnxruntime.configuration import AutoQuantizationConfig, CalibrationConfig
-from onnxruntime import SessionOptions, GraphOptimizationLevel, ExecutionMode
+from optimum.onnxruntime import ORTModelForSequenceClassification
+from onnxruntime import SessionOptions, GraphOptimizationLevel
 
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
@@ -74,8 +73,8 @@ class TrainModel():
         #     self.__tokenizer = AutoTokenizer.from_pretrained(self.__tokenizer_path)
         # else:
         trainModelName = "klue/bert-base"
-        special_tokens = ['[TIME]', 'I9금', 'l9금', 'ㅣ9금', '인급동', '모드', 'ㅋㅋㅋ', 'ㅋㅋ', '얀데레', '썸네일', '썸넬', '추카', '치카', 'tlqkf', '카와이', '포카', '릴파', '릴스', '프세카', '케이카', '엔카', '쏘카', '그린카', '양카',
-                            'MS', 'DOS', '19_금', 'I9_금', 'l9_금', '1_9금', 'I_9금', 'l_9금', '강원랜드']
+        with open('special_tokens.txt', 'r', encoding='utf-8') as f:
+            special_tokens = f.read().splitlines()
         self.__tokenizer = AutoTokenizer.from_pretrained(trainModelName)
         self.__tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
 
@@ -209,20 +208,33 @@ if __name__ == "__main__":
     helper.download_all_files('dataset.csv')
 
     if args.train:
-        data = pd.read_csv(os.path.join(save_root_path, "dataset.csv"), usecols=["nickname", "comment", "nickname_class", "comment_class"])
+        df = pd.read_csv(os.path.join(save_root_path, "dataset.csv"), usecols=["nickname", "comment", "nickname_class", "comment_class"])
 
-        data['nickname'] = data['nickname'].str.replace(r"-[a-zA-Z0-9]{3}$|-[a-zA-Z0-9]{5}$", "", regex=True).replace(r'[-._]', ' ', regex=True)
-        data['comment'] = data['comment'].str.replace(r'\d+:(?:\d+:?)?\d+', '[TIME]', regex=True).replace(r'chill', '칠', regex=True)
+        df['nickname'] = df['nickname'].str.replace('@', '')
+        df['nickname'] = df['nickname'].str.replace(r'[^a-zA-Z가-힣ㄱ-ㅎㅏ-ㅣ0-9-_.]+', '[DEFAULT_NICK]', regex=True)
+        df['nickname'] = df['nickname'].str.replace(r"-[a-zA-Z0-9]{3}$|-[a-zA-Z0-9]{5}$", "", regex=True)
+        df['nickname'] = df['nickname'].str.replace(r'[-._]', ' ', regex=True)
+        df['nickname'] = df['nickname'].str.strip()
+
+
+        df['comment'] = df['comment'].str.replace('|', ',', regex=True)   # spread sheet에서 export할 때 , 를 | 로 바꿔놨음. 안그러면 csv가 지랄하더라...
+        df['comment'] = df['comment'].str.replace(r'https?:\/\/[^\s]+|www\.[^\s]+', '[URL]', regex=True)
+        df['comment'] = df['comment'].str.replace(r'#(\w+)', '[HASH_TAG]', regex=True)
+        df['comment'] = df['comment'].str.replace(r'\d+:(?:\d+:?)?\d+', '[TIME]', regex=True)
+        df['comment'] = df['comment'].str.replace(r'chill', '칠', regex=True)
+        df['comment'] = df['comment'].str.strip()
+        df['comment'] = df['comment'].fillna('[EMPTY]')
+
 
         torch.cuda.empty_cache()
-        nickname_model = TrainModel(data, "nickname", save_path=save_root_path, epoches=5)
+        nickname_model = TrainModel(df, "nickname", save_path=save_root_path, epoches=5)
         nickname_model.train()
         nickname_model.evaluate()
         nickname_model.save()
         torch.cuda.empty_cache()
 
         torch.cuda.empty_cache()
-        comment_model = TrainModel(data, "comment", save_path=save_root_path, epoches=5)
+        comment_model = TrainModel(df, "comment", save_path=save_root_path, epoches=5)
         comment_model.train()
         comment_model.evaluate()
         comment_model.save()

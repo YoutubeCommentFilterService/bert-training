@@ -220,6 +220,9 @@ if __name__ == "__main__":
         df['comment'] = df['comment'].str.replace('|', ',', regex=True)   # spread sheet에서 export할 때 , 를 | 로 바꿔놨음. 안그러면 csv가 지랄하더라...
         df['comment'] = df['comment'].str.replace(r'https?:\/\/[^\s]+|www\.[^\s]+', '[URL]', regex=True)
         df['comment'] = df['comment'].str.replace(r'#(\w+)', '[HASH_TAG]', regex=True)
+        df['comment'] = df['comment'].str.replace(r'[’‘]+', "'", regex=True)
+        df['comment'] = df['comment'].str.replace(r'[”“]+', '"', regex=True)
+        df['comment'] = df['comment'].str.replace(r'[\*\^]', '', regex=True)
         df['comment'] = df['comment'].str.replace(r'\d+:(?:\d+:?)?\d+', '[TIME]', regex=True)
         df['comment'] = df['comment'].str.replace(r'chill', '칠', regex=True)
         df['comment'] = df['comment'].str.strip()

@@ -288,8 +288,11 @@ def replace_nickname_data(df: pd.DataFrame):
     df['comment'] = df['comment']\
         .str.replace(r'@{1,2}[A-Za-z0-9가-힣\_\-\.]+', '[TAG]', regex=True)\
         .str.replace(r'#[A-Za-z0-9ㄱ-ㅎㅏ-ㅣ가-힣\_\-\.]+', '[HASH_TAG]', regex=True)\
+        .str.replace('¡', '!').str.replace('¿', '?')\
         .str.replace(r'([👇✋👍])', '[THUMB]', regex=True)\
-        .str.replace(r'([➡⬇↗↘↖↙→←↑↓⇒]|[\-\=]+>|<[\-\=]+)', '[ARROW]', regex=True)
+        .str.replace(r'([➡⬇↗↘↖↙→←↑↓⇒]|[\-\=]+>|<[\-\=]+)', '[ARROW]', regex=True)\
+        .str.replace(r'[💚💛🩷🩶💗💖❤🩵🖤💘♡♥🧡🔥💕️🤍💜🤎💙]', '[HEART]', regex=True)\
+        .str.replace(r'🎉', '[CONGRAT]', regex=True)
     # 쓸데없이 많은 문장부호 제거
     df['comment'] = df['comment']\
         .str.replace(r'([^\s])[.,](?=\S)', r'\1', regex=True)\
@@ -365,8 +368,11 @@ if __name__ == "__main__":
 
         batch_size = 16
 
+        nickname_test_size = 0.1
+        comment_test_size = 0.2
+
         torch.cuda.empty_cache()
-        nickname_model = TrainModel(df, "nickname", save_path=save_root_path, epoches=5, batch_size=batch_size)
+        nickname_model = TrainModel(df, "nickname", save_path=save_root_path, test_size=nickname_test_size, epoches=5, batch_size=batch_size)
         nickname_model.train()
         nickname_model.evaluate()
         nickname_model.save()
@@ -375,7 +381,7 @@ if __name__ == "__main__":
         del nickname_model
 
         torch.cuda.empty_cache()
-        comment_model = TrainModel(df, "comment", save_path=save_root_path, epoches=5, batch_size=batch_size)
+        comment_model = TrainModel(df, "comment", save_path=save_root_path, test_size=comment_test_size, epoches=5, batch_size=batch_size)
         comment_model.train()
         comment_model.evaluate()
         comment_model.save()

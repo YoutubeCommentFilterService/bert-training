@@ -5,13 +5,10 @@ from google.oauth2 import service_account
 from dotenv import load_dotenv
 
 import os
-import json
 import io
 from tqdm import tqdm
 from pathlib import Path
 from typing import Any, Tuple, Union
-
-import platform
 
 class GoogleDriveHelper():
     def __init__(self, project_root_dir:str, 

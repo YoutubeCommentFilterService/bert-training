@@ -282,7 +282,7 @@ class GoogleDriveHelper():
             response = self._file_service.list(
                 q=f"'{folder_id}' in parents",
                 spaces='drive',
-                fields='nextPageToken, files(id, name, mimeType, parentId)',
+                fields='nextPageToken, files(id, name, mimeType)',
                 pageToken=page_token
             ).execute()
             results.extend(response.get("files", []))

@@ -316,12 +316,14 @@ def replace_nickname_data(df: pd.DataFrame):
     df['comment'] = df['comment'].str.strip()
     df['comment'] = df['comment'].fillna('[EMPTY]')
 
-from google_drive_helper import GoogleDriveHelper
+# from google_drive_helper import GoogleDriveHelper
+from s3_helper import S3Helper
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-t', '--train', action='store_true', help='훈련을 진행합니다.')
     parser.add_argument('-u', '--upload', action='store_true', help='생성한 모델들을 업로드합니다.')
+    parser.add_argument('-p', '--predict', action='store_true', help='생성한 모델을 테스트합니다.')
 
     args = parser.parse_args()
     if not any(vars(args).values()):
@@ -346,16 +348,19 @@ if __name__ == "__main__":
     do_not_upload_list = ['dataset.csv']
     google_client_key_path = os.path.join(project_root_dir, 'env', 'ml-server-key.json')
 
-    helper = GoogleDriveHelper(project_root_dir=project_root_dir,
-                            google_client_key_path=google_client_key_path,
-                            google_drive_owner_email=google_drive_owner_email,
-                            do_not_download_list=do_not_download_list,
-                            do_not_upload_list=do_not_upload_list,
-                            local_target_root_dir_name='model',
-                            drive_root_folder_name='comment-filtering')
+    # helper = GoogleDriveHelper(project_root_dir=project_root_dir,
+    #                         google_client_key_path=google_client_key_path,
+    #                         google_drive_owner_email=google_drive_owner_email,
+    #                         do_not_download_list=do_not_download_list,
+    #                         do_not_upload_list=do_not_upload_list,
+    #                         local_target_root_dir_name='model',
+    #                         drive_root_folder_name='comment-filtering')
     
     # helper.print_directory_metadata()
-    helper.download_all_files('dataset.csv')
+    # helper.download_all_files('dataset.csv')
+    root_path = os.path.dirname(__file__)
+
+    helper = S3Helper(root_path, 'youtube-comment-predict')
 
     if args.train:
         df = pd.read_csv(os.path.join(save_root_path, "dataset.csv"), usecols=["nickname", "comment", "nickname_class", "comment_class"])
@@ -390,7 +395,8 @@ if __name__ == "__main__":
         del comment_model
 
     if args.upload:
-        helper.upload_all_files()
+        # helper.upload_all_files()
+        helper.upload(from_local=True)
 
     # for folder_name, inner_data in helper.directory_struct.items():
     #     if folder_name == 'comment-filtering':
@@ -403,3 +409,40 @@ if __name__ == "__main__":
     #         helper.delete_file(metadata.get('id'))
         
     #     helper.delete_file(inner_data.get('id'))
+
+
+
+    if args.predict:
+        device = torch.device('cuda')
+        def generate_token(tokenizer, text: str, type: str="n"):
+            tokens = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=40 if type == 'n' else 256)
+            return {key: val.to(device) for key, val in tokens.items()}
+        
+        df = pd.read_csv(os.path.join(save_root_path, "dataset.csv"), usecols=["nickname_class", "comment_class"])
+        nickname_classes = df['nickname_class'].dropna().unique()
+        comment_classes = df['comment_class'].dropna().unique()
+
+        tokenizer = AutoTokenizer.from_pretrained('model/tokenizer')
+        nickname_model = AutoModelForSequenceClassification.from_pretrained('model/nickname_model').to(device)
+        comment_model = AutoModelForSequenceClassification.from_pretrained('model/comment_model').to(device)
+
+        while True:
+            nickname = input("검증할 닉네임 입력(종료 - exit): ")
+            if nickname == 'exit':
+                break
+
+            comment = input("검증할 댓글 입력: ")
+
+            nickname_tokens = generate_token(tokenizer, nickname, 'n')
+            comment_tokens = generate_token(tokenizer, comment, 'c')
+
+            with torch.no_grad():
+                outputs = nickname_model(**nickname_tokens)
+                nickname_predicted_class = torch.argmax(outputs.logits, dim=1).item()
+                
+            with torch.no_grad():
+                outputs = comment_model(**comment_tokens)
+                comment_predicted_class = torch.argmax(outputs.logits, dim=1).item()
+
+            print(nickname_classes[nickname_predicted_class], comment_classes[comment_predicted_class])
+            torch.cuda.empty_cache()

@@ -132,19 +132,24 @@ class TrainModel():
 
     # 학습
     def train(self):
+        device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.__model.to(self.device)
+        scaler = torch.amp.GradScaler(device_type)
         for epoch in range(self.epoches):
             self.__model.train()
             loop = tqdm(self.__train_loader, leave=True)
             for batch in loop:
                 batch = {key: val.to(self.device) for key, val in batch.items()}
 
-                outputs = self.__model(**batch)
-                loss = outputs.loss
-
                 self.__optimizer.zero_grad()
-                loss.backward()
-                self.__optimizer.step()
+
+                with torch.autocast(device_type):
+                    outputs = self.__model(**batch)
+                    loss = outputs.loss
+
+                scaler.scale(loss).backward()
+                scaler.step(self.__optimizer)
+                scaler.update()
                 self.scheduler.step()
 
                 loop.set_description(f'Epoch {epoch}')

@@ -187,6 +187,9 @@ class TrainModel():
     def save(self):
         self.__model.save_pretrained(self.model_path)
         self._tokenizer.save_pretrained(self.tokenizer_path)
+
+        fp16 = self.__model.half()
+        fp16.save_pretrained(self.model_path+"_fp16")
         print(f"{self.model_type} model and tokenizer saved")
 
         # 당분간 onnxruntime은 사용하지 않기로 한다.
@@ -328,7 +331,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-t', '--train', action='store_true', help='훈련을 진행합니다.')
     parser.add_argument('-u', '--upload', action='store_true', help='생성한 모델들을 업로드합니다.')
-    parser.add_argument('-p', '--predict', action='store_true', help='생성한 모델을 테스트합니다.')
+    parser.add_argument('-s', '--save', action='store_true', help='모델을 불러와 그대로 저장합니다. fp16 잘 되는지 테스트용')
 
     args = parser.parse_args()
     if not any(vars(args).values()):
@@ -415,39 +418,19 @@ if __name__ == "__main__":
         
     #     helper.delete_file(inner_data.get('id'))
 
+    if args.save:
+        df = pd.read_csv(os.path.join(save_root_path, "dataset.csv"), usecols=["nickname", "comment", "nickname_class", "comment_class"])
+        df['comment'] = df['comment'].str.replace(r'\\', ',', regex=True)
 
+        batch_size = 16
 
-    if args.predict:
-        device = torch.device('cuda')
-        def generate_token(tokenizer, text: str, type: str="n"):
-            tokens = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=40 if type == 'n' else 256)
-            return {key: val.to(device) for key, val in tokens.items()}
+        nickname_test_size = 0.1
+        comment_test_size = 0.2
         
-        df = pd.read_csv(os.path.join(save_root_path, "dataset.csv"), usecols=["nickname_class", "comment_class"])
-        nickname_classes = df['nickname_class'].dropna().unique()
-        comment_classes = df['comment_class'].dropna().unique()
+        nickname_model = TrainModel(df, "nickname", save_path=save_root_path, test_size=nickname_test_size, epoches=5, batch_size=batch_size)
+        nickname_model.save()
+        del nickname_model
 
-        tokenizer = AutoTokenizer.from_pretrained('model/tokenizer')
-        nickname_model = AutoModelForSequenceClassification.from_pretrained('model/nickname_model').to(device)
-        comment_model = AutoModelForSequenceClassification.from_pretrained('model/comment_model').to(device)
-
-        while True:
-            nickname = input("검증할 닉네임 입력(종료 - exit): ")
-            if nickname == 'exit':
-                break
-
-            comment = input("검증할 댓글 입력: ")
-
-            nickname_tokens = generate_token(tokenizer, nickname, 'n')
-            comment_tokens = generate_token(tokenizer, comment, 'c')
-
-            with torch.no_grad():
-                outputs = nickname_model(**nickname_tokens)
-                nickname_predicted_class = torch.argmax(outputs.logits, dim=1).item()
-                
-            with torch.no_grad():
-                outputs = comment_model(**comment_tokens)
-                comment_predicted_class = torch.argmax(outputs.logits, dim=1).item()
-
-            print(nickname_classes[nickname_predicted_class], comment_classes[comment_predicted_class])
-            torch.cuda.empty_cache()
+        comment_model = TrainModel(df, "comment", save_path=save_root_path, test_size=comment_test_size, epoches=5, batch_size=batch_size)
+        comment_model.save()
+        del comment_model

@@ -54,7 +54,7 @@ class S3Helper:
     def download(self, s3_fpaths: List[str] = []):
         if (len(s3_fpaths) == 0):
             s3_fpaths = self._get_file_metadata()
-            local_fpaths = [f'{self.save_s3_file_root_path}/{s3_fpath}' for s3_fpath in s3_fpaths]
+        local_fpaths = [f'{self.save_s3_file_root_path}/{s3_fpath}' for s3_fpath in s3_fpaths]
 
         dir_paths = [f'{self.save_s3_file_root_path}/{fpath}' for fpath in set([str(Path(fpath).parent) for fpath in s3_fpaths])]
         for dir_path in dir_paths:

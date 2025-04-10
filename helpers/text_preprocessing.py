@@ -103,9 +103,9 @@ def normalize_nickname(df: pd.DataFrame):
         df['nickname']
             .str.replace(r'[1Iil]9', '19', regex=True)
             .str.replace(r'[1Iil]9(?:x|금)|19금', '19금', regex=True)
-            .str.replace(r'(?:야|얏|얃)(?:동|둉|덩|뎡|둥|듕)', '야동', regex=True)
-            .str.replace(r'얃(?:옹|용|엉|영|웅|융)', '야동', regex=True)
             .str.replace(r'[ㅇoO0]F', '야', regex=True)
+            .str.replace(r'(?:야|얏|얃)\w*(?:동|둉|덩|뎡|둥|듕)', '야동', regex=True)
+            .str.replace(r'얃\w*(?:옹|용|엉|영|웅|융)', '야동', regex=True)
             .str.replace(r'(?:채|체|챼|쳬)(?:널|녈|놀|뇰|눌|뉼)', '채널', regex=True)
             .str.replace(r'(?:챈|첸|첀|쳰)(?:얼|열|올|욜|울|율)', '채널', regex=True)
             .str.replace(r'(?:프|푸)(?:사|샤)', '프사', regex=True)

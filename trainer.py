@@ -74,12 +74,15 @@ class TrainModel():
         self.__unique_label_pd = self.__label_pd.unique()
 
         self.__label_index_map = {label: idx for idx, label in enumerate(self.__unique_label_pd)}
+        from collections import Counter
+        print(Counter(self.__label_pd))
 
         self.__train_datas, self.__eval_datas, \
             self.__train_labels, self.__eval_labels = train_test_split(data_pd,
                                                                        self.__label_pd,
                                                                        test_size=self.test_size,
-                                                                       shuffle=True)
+                                                                       shuffle=True,
+                                                                       stratify=self.__label_pd)
 
     def __load_tokenizer(self) -> None:
         def load_tokens(path: str) -> Set[str]:
@@ -282,8 +285,8 @@ if __name__ == "__main__":
 
         batch_size = 16
 
-        nickname_test_size = 0.1
-        comment_test_size = 0.2
+        nickname_test_size = 0.2
+        comment_test_size = 0.15
 
         torch.cuda.empty_cache()
         nickname_model = TrainModel(df, "nickname", save_path=save_root_path, test_size=nickname_test_size, epoches=5, batch_size=batch_size)

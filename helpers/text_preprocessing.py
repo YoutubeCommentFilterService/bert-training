@@ -15,9 +15,40 @@ def normalize_unicode_text(text: str) -> str:
         'ᆵ': 'ㄹㅍ', 'ᄡ': 'ㅂㅅ', 'ᄈ': 'ㅂㅂ',
         '𐨛': 'ㅋ', 'ヲ': 'ㅋ'
     }
+    visual_map = {
+        'a': '[ᴀ𝗮𝘢𝙖𝓪αаＡａ𝖺𝓐]',
+        'b': '[ᵇ𝒷𝗯𝙗𝓫𝖇ʙＢｂ𝑏]',
+        'c': '[ⅽᴄϲⲥϲⲤ¢匚𐰽ᏟⅭℂⅽＣ∁ｃ𝖼𝑐𝒸𝓬ꞓ]',
+        'd': '[𝖽𝑑ⅾⅆｄ𝐝𝗱𝙙𝒅𝒟𝔡𝕕]',
+        'e': '[ｅ𝐞𝗲𝙚𝑒𝒆𝓮𝖾℮𝔢𝕖𝕰еε]',
+        'f': '[𝒇𝒻𝓯𝖿𝕗𝐟𝗳𝙛ｆ]',
+        'g': '[𝗀𝓰𝙜𝐠𝑔𝒈𝓰𝖌ｇ]',
+        'h': '[𝐡𝗵𝙝𝑯𝒉𝓱𝖍ｈ]',
+        'i': '[𝐢𝗶𝙞𝑖𝒊𝓲𝖎ｉ]',
+        'j': '[𝐣𝗷𝙟𝑗𝒋𝓳𝖏ｊ]',
+        'k': '[𝐤𝗸𝙠𝑘𝒌𝓴𝖐ｋ]',
+        'l': '[𝐥𝗹𝙡𝑙𝒍𝓵𝖑ⅼｌ]',
+        'm': '[ⅿ𝗺𝙢𝑚𝒎𝓶𝖒𝕞ｍⲘΜм]',
+        'n': '[𝗻𝙣𝑛𝒏𝓷𝖓ｎ𝗇𝐧]',
+        'o': '[οОＯ〇ｏ𝑜𝗈𝗼𝙤𝓞𝓸𝖔ⲟⓞⵔꝋ]',
+        'p': '[𝐩𝗽𝙥𝑝𝒑𝓹𝖕ｐ𝕡ρр]',
+        'q': '[𝐪𝗾𝙦𝑞𝒒𝓺𝖖ｑ]',
+        'r': '[𝐫𝗿𝙧𝑟𝒓𝓻𝖗ｒ𝕣ꞃ]',
+        's': '[𝐬𝗿𝙨𝑠𝒔𝓼𝖘ｓ𝕤ꜱ]',
+        't': '[𝐭𝗍𝙩𝑡𝒕𝓽𝖙ｔ𝕥ꞇ]',
+        'u': '[𝐮𝗎𝙪𝑢𝒖𝓾𝖚ｕ]',
+        'v': '[𝐯𝗏𝙫𝑣𝒗𝓿𝖛ｖ]',
+        'w': '[𝐰𝗐𝙬𝑤𝒘𝔀𝖜ｗ]',
+        'x': '[𝐱𝗑𝙭𝑥𝒙𝓍𝖝ｘ𝕩х]',
+        'y': '[𝐲𝗒𝙮𝑦𝒚𝓎𝖞ｙ𝕪у]',
+        'z': '[𝐳𝗓𝙯𝑧𝒛𝔃𝖟ｚ𝕫ᴢ]',
+    }
     
     normalized = unicodedata.normalize("NFKC", text)
     normalized = ''.join(ch for ch in normalized if not unicodedata.combining(ch))
+    for char, pattern in visual_map.items():
+        normalized = re.sub(pattern, char, normalized)
+    normalized = re.sub(r'[cC][o0O][mM]', 'com', normalized)
     normalized = ''.join(ch for ch in normalized if not ('\u4E00' <= ch <= '\u9FFF'))
 
     return ''.join(unicode_single_hangul_dict.get(ch, ch) for ch in normalized)
@@ -71,69 +102,8 @@ def normalize_tlettak_font(text: str,
     text = re.sub(r'([\(\[\{]) | ([\)\]\}])', lambda m: m.group(1) or m.group(2), text)
     return text
 
-# 닉네임 정제
-def clean_nickname(df: pd.DataFrame):
-    def remove_if_hyphen_and_odd_word(text):
-        # group(1): 캡처된 그룹
-        # group(0): pattern 그 자체
-        return re.sub(
-            r'-([a-zA-Z0-9]+)(?=\s|$)', 
-            lambda m: '' if len(m.group(1)) % 2 == 1 else m.group(0), 
-            text
-        )
-    
-    nickname_series = (
-        df['nickname']
-            .str.strip()
-            .str.replace(r'^@', '', regex=True)
-            .apply(lambda x: remove_if_hyphen_and_odd_word(x) if isinstance(x, str) else x)
-    )
-    df['nickname'] = (
-        nickname_series
-            .str.replace(r'[-._]', '', regex=True)
-            .str.replace(r'[^a-zA-Z가-힣ㄱ-ㅎㅏ-ㅣ0-9]+', '', regex=True)
-            .str.strip()
-            # .apply(lambda x: '[DEFAULT_NICK]' if x == '' else x)
-    )
-    return df
-
-# 닉네임 정규화
-def normalize_nickname(df: pd.DataFrame):
-    df['nickname'] = (
-        df['nickname']
-            .str.replace(r'[1Iil]9', '19', regex=True)
-            .str.replace(r'[1Iil]9(?:x|금)|19금', '19금', regex=True)
-            .str.replace(r'[ㅇoO0]F', '야', regex=True)
-            .str.replace(r'(?:야|얏|얃)\w*(?:동|둉|덩|뎡|둥|듕)', '야동', regex=True)
-            .str.replace(r'얃\w*(?:옹|용|엉|영|웅|융)', '야동', regex=True)
-            .str.replace(r'(?:채|체|챼|쳬)(?:널|녈|놀|뇰|눌|뉼)', '채널', regex=True)
-            .str.replace(r'(?:챈|첸|첀|쳰)(?:얼|열|올|욜|울|율)', '채널', regex=True)
-            .str.replace(r'(?:프|푸)(?:사|샤)', '프사', regex=True)
-            .str.replace(r'카g', '카지', regex=True)
-            .str.replace(r'갸입', '가입', regex=True)
-            .str.replace(r'(?:온|On|on|ON)(?:팬|Fan|fan|FAN)', '온팬', regex=True)
-            .str.replace(r'(?:뮨|문|무|뮤)늬|뮨의', '문의', regex=True)
-            .str.replace(r'(?:눌|뉼)(?:러|려)', '눌러', regex=True)
-            .str.replace(r'(?:쿨|끌)릭', '클릭', regex=True)
-            .str.replace(r'(?:꾸|뀨)(?:욱|육)|뀩', '꾹', regex=True)
-    )
-    return df
-
-def set_default_nickname(df: pd.DataFrame):
-    def _change(nickname: str):
-        if re.search(r'[가-힣]', nickname):
-            if len(nickname) < 3:
-                return '[DEFAULT_NICK]'
-        else:
-            if len(nickname) < 5:
-                return '[DEFAULT_NICK]'
-        return nickname
-
-    df['nickname'] = df['nickname'].apply(lambda x: _change(x) if isinstance(x, str) else x)
-    return df
-
 # 유니코드 정규화
-def normalize_unicode(df: pd.DataFrame):
+def _normalize_unicode(df: pd.DataFrame):
     df['comment'] = (
         df['comment']
             .str.replace(r'[\u0020\u200b\u2002\u2003\u2007\u2008\u200c\u200d]+', ' ', regex=True)
@@ -162,7 +132,7 @@ def replace_unicode_punctuation(text: str) -> str:
     }
     return ''.join(unicode_punctuation_map.get(ch, ch) for ch in text)
 
-def replace_special_tokens(df: pd.DataFrame, emoji_path: str):
+def _replace_special_tokens(df: pd.DataFrame, emoji_path: str):
     with open(emoji_path, 'r', encoding='utf-8') as f:
         emojis = [line.strip() for line in f.readlines()]
     emoji_pattern = '|'.join(map(re.escape, emojis))
@@ -197,7 +167,7 @@ def replace_special_tokens(df: pd.DataFrame, emoji_path: str):
     )
     return df
 
-def cleanup_formatting(df: pd.DataFrame):
+def _cleanup_formatting(df: pd.DataFrame):
     df['comment'] = (
         df['comment']
             # 소숫점, 1000단위 변환
@@ -213,7 +183,7 @@ def cleanup_formatting(df: pd.DataFrame):
     )
     return df
 
-def replace_structed_patterns(df: pd.DataFrame):
+def _replace_structed_patterns(df: pd.DataFrame):
     date_patterns = [
         r'\d{1,4}\s*년(?:\s*\d{1,2}\s*월)?(?:\s*\d{1,2}\s*일)?',
         r'\d{1,2}\s*월(?:\s*\d{1,2}\s*일)?',
@@ -243,7 +213,7 @@ def replace_structed_patterns(df: pd.DataFrame):
             df['comment'] = df['comment'].str.replace(p, token, regex=True)
     return df
 
-def replace_misc_patterns(df: pd.DataFrame):
+def _replace_misc_patterns(df: pd.DataFrame):
     df['comment'] = (
         df['comment']
             .str.replace(r'\[+', '[', regex=True)
@@ -257,26 +227,129 @@ def replace_misc_patterns(df: pd.DataFrame):
     )
     return df
 
-def clean_duplicated_token(df: pd.DataFrame):
+def _clean_duplicated_token(df: pd.DataFrame):
     tags = ['TIMESTAMP', 'URL', 'EMAIL', 'TAG', 'HASH_TAG', 'THUMB', 'ARROW', 'TEXT_EMOJI', 'HEART', 'CONGRAT', 'DATE', 'TIME', 'FLOAT', 'NUMBER']
     for tag in tags:
         pattern = r'(?:\[' + re.escape(tag) + r'\]\s*)+'
         df['comment'] = df['comment'].apply(lambda x: re.sub(pattern, f'[{tag}]', x) if isinstance(x, str) else x)
     return df
 
+# 닉네임 정제
+def _clean_nickname(df: pd.DataFrame):
+    # user로 시작하는 경우 체크
+    def _change_if_nickname_is_default(text: str):
+        # 태그로 붙는 맨 뒤의 - 의 경우, 뒤에 대문자가 "전혀" 오지 않는다.
+        return re.sub(
+            r'^user-([a-z0-9]+)$',
+            lambda m: '[DEFAULT_NICK]' if len(m.group(1)) % 2 == 1 or len(m.group(1)) > 7 else m.group(0),
+            text
+        )
+    
+    def _change_if_starts_with_user(text: str):
+        return re.sub(
+            r'^user[-_.]([a-zA-Z0-9가-힣-._]+)$',
+            r'\1',
+            text
+        )
+    
+    def _remove_if_hyphen_and_odd_word(text: str):
+        # group(1): 캡처된 그룹
+        # group(0): pattern 그 자체
+        pattern = r'-([a-z0-9]+)$'
+        before_text = text
+        while re.search(pattern, text):
+            text = re.sub(
+                pattern, 
+                lambda m: '' if len(m.group(1)) % 2 == 1 or len(m.group(1)) > 7 else m.group(0), 
+                text
+            )
+            if text == before_text:
+                break
+            before_text = text
+
+        return text
+    
+    def _normalize_nickname(text: str):
+        if text == '[DEFAULT_NICK]':
+            return text
+        text = re.sub(r'[-._]', '', text)
+        text = re.sub(r'[^a-zA-Z가-힣0-9]+', '', text)
+        return text
+    
+    df['nickname'] = (
+        df['nickname']
+            .str.strip()
+            .str.replace(r'^@', '', regex=True)
+            .apply(lambda x: _change_if_nickname_is_default(x) if isinstance(x, str) else x)
+            .apply(lambda x: _change_if_starts_with_user(x) if isinstance(x, str) else x)
+            .apply(lambda x: _remove_if_hyphen_and_odd_word(x) if isinstance(x, str) else x)
+            .apply(lambda x: _normalize_nickname(x) if isinstance(x, str) else x)
+    )
+    return df
+
+# 닉네임 정규화
+def _normalize_spam_nickname(df: pd.DataFrame):
+    df['nickname'] = (
+        df['nickname']
+            .str.replace(r'[1Iil]9', '19', regex=True)
+            .str.replace(r'[1Iil]9(?:x|X|금)', '19금', regex=True)
+            .str.replace(r'[ㅇoO0]F([가-힣])', r'야\1', regex=True)
+            .str.replace(r'(?:야|얏|얃)\w*(?:동|둉|덩|뎡|둥|듕)', '야동', regex=True)
+            .str.replace(r'얃\w*(?:옹|용|엉|영|웅|융)', '야동', regex=True)
+            .str.replace(r'(?:채|체|챼|쳬)(?:널|녈|놀|뇰|눌|뉼)', '채널', regex=True)
+            .str.replace(r'(?:챈|첸|첀|쳰)(?:얼|열|올|욜|울|율)', '채널', regex=True)
+            .str.replace(r'(?:프|푸)(?:사|샤)', '프사', regex=True)
+            .str.replace(r'카g|카G', '카지', regex=True)
+            .str.replace(r'갸입', '가입', regex=True)
+            .str.replace(r'V[1l]P', 'VIP', regex=True)
+            .str.replace(r'(?:온|On|on|ON)(?:팬|Fan|fan|FAN)', '온팬', regex=True)
+            .str.replace(r'(?:뮨|문|무|뮤)(?:의|늬|희)', '문의', regex=True)
+            .str.replace(r'(?:눌|뉼)(?:러|려)', '눌러', regex=True)
+            .str.replace(r'클맄', '클릭', regex=True)
+            .str.replace(r'(?:쿨|끌)(?:릭|맄)', '클릭', regex=True)
+            .str.replace(r'(?:꾸|뀨)(?:욱|육)|뀩', '꾹', regex=True)
+            .str.replace(r'(?:샤|ㅅF)고', '사고', regex=True)
+            .str.replace(r'후뱡', '후방', regex=True)
+            .str.replace(r'쥬소', '주소', regex=True)
+            .str.replace(r'꾤', '꼴', regex=True)
+            .str.replace(r'계졍', '계정', regex=True)
+    )
+    return df
+
+def _remove_isolated_english(df: pd.DataFrame):
+    df['nickname'] = (
+        df['nickname']
+            .str.replace(r'(?<=[가-힣])([a-zA-Z])(?=[가-힣])(?!양)', '', regex=True)
+    )
+    return df
+
+def _set_default_nickname(df: pd.DataFrame):
+    def _change(nickname: str):
+        if re.search(r'[가-힣]', nickname):
+            if len(nickname) < 3:
+                return '[DEFAULT_NICK]'
+        else:
+            if len(nickname) < 5:
+                return '[DEFAULT_NICK]'
+        return nickname
+
+    df['nickname'] = df['nickname'].apply(lambda x: _change(x) if isinstance(x, str) else x)
+    return df
+
 def run_text_preprocessing(df: pd.DataFrame, emoji_path: str):
     df = (
-        normalize_unicode(df)
-            .pipe(replace_special_tokens, emoji_path)
-            .pipe(replace_structed_patterns)
-            .pipe(cleanup_formatting)
-            .pipe(replace_misc_patterns)
-            .pipe(clean_duplicated_token)
+        _normalize_unicode(df)
+            .pipe(_replace_special_tokens, emoji_path)
+            .pipe(_replace_structed_patterns)
+            .pipe(_cleanup_formatting)
+            .pipe(_replace_misc_patterns)
+            .pipe(_clean_duplicated_token)
     )
     df = (
-        clean_nickname(df)
-            .pipe(normalize_nickname)
-            .pipe(set_default_nickname)
+        _clean_nickname(df)
+            .pipe(_normalize_spam_nickname)
+            .pipe(_remove_isolated_english)
+            .pipe(_set_default_nickname)
     )
     return df
 

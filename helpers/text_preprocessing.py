@@ -39,7 +39,7 @@ def normalize_unicode_text(text: str) -> str:
         'u': '[𝐮𝗎𝙪𝑢𝒖𝓾𝖚ｕ]',
         'v': '[𝐯𝗏𝙫𝑣𝒗𝓿𝖛ｖ]',
         'w': '[𝐰𝗐𝙬𝑤𝒘𝔀𝖜ｗ]',
-        'x': '[𝐱𝗑𝙭𝑥𝒙𝓍𝖝ｘ𝕩х]',
+        'x': '[𝐱𝗑𝙭𝑥𝒙𝓍𝖝ｘ𝕩х×]',
         'y': '[𝐲𝗒𝙮𝑦𝒚𝓎𝖞ｙ𝕪у]',
         'z': '[𝐳𝗓𝙯𝑧𝒛𝔃𝖟ｚ𝕫ᴢ]',
     }
@@ -71,7 +71,7 @@ def normalize_korify(text: str):
 
 def normalize_tlettak_font(text: str, 
                            space_pattern: Union[str, re.Pattern] = r'\s*[\w가-힣ㄱ-ㅎㅏ-ㅣ!?%\^\(\)\[\]\{\}\-+=~,.\/<>;:\'"]+[\s!?@.,❤]*', 
-                           search_pattern: Union[str, re.Pattern] = r'\b([\w가-힣ㄱ-ㅎㅏ-ㅣ!?%\^\-+=~,.\/<>;:\'"]{1}\b)([\s!?\^@.,ㅣ~❤]+)(\b[\w가-힣ㄱ-ㅎㅏ-ㅣ!?%\^\-+=~,.\/<>;:\'"]{1}\b)'
+                           search_pattern: Union[str, re.Pattern] = r'\b([\w가-힣ㄱ-ㅎㅏ-ㅣ!?%\&\^\-+=~,.\/<>;:\'"]{1}\b)([\s!?\^@.,ㅣ~❤]+)(\b[\w가-힣ㄱ-ㅎㅏ-ㅣ!?%\^\-+=~,.\/<>;:\'"]{1}\b)'
                            ) -> str:
     
     space_pattern = re.compile(space_pattern) if isinstance(space_pattern, str) else space_pattern
@@ -105,10 +105,11 @@ def normalize_tlettak_font(text: str,
 # 유니코드 정규화
 def _normalize_unicode(df: pd.DataFrame):
     df['comment'] = (
-        df['comment']
+        df['comment'] # \u2640\u2642\u2695\u2696\u2708\u2764
             .str.replace(r'[\u0020\u200b\u2002\u2003\u2007\u2008\u200c\u200d]+', ' ', regex=True)
             .str.replace(r'[\U0001F3FB-\U0001F3FF\uFE0F]', '', regex=True)
             .str.replace(r'\*+', '', regex=True)
+            .str.replace('9글', '구글')
             .apply(lambda x: replace_unicode_punctuation(x) if isinstance(x, str) else x)
             .apply(lambda x: normalize_unicode_text(x) if isinstance(x, str) else x)
             .apply(lambda x: normalize_korify(x) if isinstance(x, str) else x)
@@ -119,20 +120,52 @@ def _normalize_unicode(df: pd.DataFrame):
 # 유니코드 문장부호 변환
 def replace_unicode_punctuation(text: str) -> str:
     unicode_punctuation_map = {
-        '¡': '!', '！': '!',
-        '¿': '?', '？': '?',
-        '‘': "'", '’': "'", '＇': "'",
-        '“': '"', '”': '"', '＂': '"',
-        'ㆍ': '.', '·': '.', '・': '.', '•': '.', '．': '.',
-        '，': ',',
-        'ᆢ': '..', '…': '...',
-        '：': ':', '；': ';',
-        '（': '(', '）': ')',
-        '‐': '-', '‑': '-', '‒': '-', '–': '-', '—': '-', '―': '-',
+        '!': r'[¡！❗]',
+        '!?': r'[⁉]',
+        '?': r'[¿？]',
+        "'": r'[‘’＇]',
+        '"': r'[“”＂]',
+        '.': r'[ㆍ·・•．]',
+        ',': r'[，]',
+        '..': r'[ᆢ]',
+        '...': r'[…]',
+        ':': r'[：]',
+        ';': r'[；]',
+        '(': r'[（]',
+        ')': r'[）]',
+        '-': r'[‐‑‒–—―]',
     }
-    return ''.join(unicode_punctuation_map.get(ch, ch) for ch in text)
+    for key, pattern in unicode_punctuation_map.items():
+        text = re.sub(pattern, key, text)
+    return text
 
 def _replace_special_tokens(df: pd.DataFrame, emoji_path: str):
+    def _replace_emoji(text: str):
+        def _shrink_single_tags(emoji_str: str):
+            return r'(?:[' + ''.join(re.escape(c) for c in emoji_str) + r']\s*)+'
+        def _shrink_combined_tags(capture_patterns: str):
+            return r'(?:' + '|'.join(capture_patterns) + r'\s*)+'
+        text = re.sub(_shrink_single_tags('😰😨😥😓😖😩😬🥵'), '[FACE_NERVOUS]', text)
+        text = re.sub(_shrink_single_tags('😎😏'), '[FACE_COOL]', text)
+        text = re.sub(_shrink_single_tags('🤒🤕🤢🤮🤧😷'), '[FACE_SICK]', text)
+        text = re.sub(_shrink_single_tags('😬😳😶'), '[FACE_AWKWARD]', text)
+        text = re.sub(_shrink_single_tags('🤔🧐🤷🤷‍♂️🤷‍♀'), '[FACE_CURIOUS]', text)
+        text = re.sub(_shrink_single_tags('😮😲🫢😳😯😱🙀'), '[FACE_SURPRISE]', text)
+        text = re.sub(_shrink_single_tags('😠😡💢👿😤'), '[FACE_ANGRY]', text)
+        text = re.sub(_shrink_single_tags('😢😥🥲😭😞😔😟🥺🥹😿'), '[FACE_SAD]', text)
+        text = re.sub(_shrink_single_tags('😂🤣🤭😹'), '[FACE_LAUGH]', text)
+        text = re.sub(_shrink_single_tags('😀😃😄😁😆😊🙂🤗🤩🤤🤓🙃'), '[FACE_SMILE]', text)
+        text = re.sub(_shrink_single_tags('😕🤨😅'), '[FACE_SARCASM]', text)
+        text = re.sub(_shrink_single_tags('🙏🕊'), '[PRAY]', text)
+        text = re.sub(_shrink_single_tags('💞💕💕💗💘💖❤❤🧡💛💚💙💜🖤🤎🤍💟🩷🩵🩶❣💝😘🥰😍😚😙♡♥'), '[HEART]', text)
+        text = re.sub(r'(?i)' + _shrink_combined_tags([r'l(?:o|\[HEART\])?ve', r'사랑해(?:요)?\b', r'\b사랑해(?:요)?', r'좋아해?요', r'좋아해요?']), '[HEART]', text)
+        text = re.sub(_shrink_single_tags('🎉🥳🎊👏🥂'), '[CONGRAT]', text)
+        text = re.sub(_shrink_single_tags('❌'), '[NO]', text)
+        text = re.sub(_shrink_single_tags('⭕️✅'), '[YES]', text)
+        text = re.sub(_shrink_single_tags('✋👍🙋'), '[THUMB]', text)
+        text = re.sub(_shrink_single_tags('➡⬅⬇⍐↗↘↖↙→←↑↓⇒⏫🔙👆👈👇'), '[ARROW]', text)
+        text = re.sub(_shrink_combined_tags([r'[\-=]+>+', r'<+[\-=]+']), '[ARROW]', text)
+        return text
     with open(emoji_path, 'r', encoding='utf-8') as f:
         emojis = [line.strip() for line in f.readlines()]
     emoji_pattern = '|'.join(map(re.escape, emojis))
@@ -143,27 +176,21 @@ def _replace_special_tokens(df: pd.DataFrame, emoji_path: str):
             # email 전처리
             .str.replace(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '[EMAIL]', regex=True)
             # tag 전처리
-            .str.replace(r'@+[\w가-힣\.\-]*', '[TAG]', regex=True)
+            .str.replace(r'@+[\w가-힣\.\-]+', '[TAG]', regex=True)
             # 해시태그 전처리
             .str.replace(r'#[\w가-힣.ㄱ-ㅎㅏ-ㅣ-]+', '[HASH_TAG]', regex=True)
+            # 카운트다운, IP 전처리
+            .str.replace(r'(?:\d+\s*[.,]+){4,}', '[STEP]', regex=True)
+            .str.replace(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', '[IP]', regex=True)
             # 타임스탬프 전처리
-            .str.replace(r'\d+:[0-5]\d:[0-5]\d\s*초?', '[TIMESTAMP]', regex=True)
-            .str.replace(r'[0-5]?\d+:[0-5]\d\s*초?', '[TIMESTAMP]', regex=True)
+            .str.replace(r'\d+:[0-5]\d:[0-5]\d(?:\s*초)?', '[TIMESTAMP]', regex=True)
+            .str.replace(r'\d+:[0-5]\d(?:\s*초)?', '[TIMESTAMP]', regex=True)
             # 비율 전처리. 화면 비율이든 과실 비율이든
             .str.replace(r'\d+:\d+', '[RATIO]', regex=True)
             # 텍스트 기반 이모지 전처리
             .str.replace(emoji_pattern, '[TEXT_EMOJI]', regex=True)
             # 개추, 추천 요청 전처리
-            .str.replace(r'([👆👈👇✋👍])', '[THUMB]', regex=True)
-            # 화살표 전처리
-            .str.replace(r'([➡⬅⬇⍐↗↘↖↙→←↑↓⇒⏫🔙]|[\-=]+>+|<+[\-=]+)', '[ARROW]', regex=True)
-            # 하트 이모지 전처리
-            .str.replace(r'[💚💛🩷🩶💗💖❤🩵🖤💘♡♥🧡🔥💕️🤍💜🤎💙]', '[HEART]', regex=True)
-            # 축하 이모지 전처리
-            .str.replace(r'🎉', '[CONGRAT]', regex=True)
-            # yes, no 이모지 전처리
-            .str.replace(r'❌', '[NO]', regex=True)
-            .str.replace(r'[⭕️✅]', '[YES]', regex=True)
+            .apply(lambda x: _replace_emoji(x) if isinstance(x, str) else x)
     )
     return df
 
@@ -185,53 +212,157 @@ def _cleanup_formatting(df: pd.DataFrame):
 
 def _replace_structed_patterns(df: pd.DataFrame):
     date_patterns = [
+        r'\d{2,4}\s*\.\s*\d{1,2}\s*\.\s*\d{1,2}\s*\.?',
+        r'\d{2,4}\s*\-\s*\d{1,2}\s*\-\s*\d{1,2}\s*',
+        r'\d{2,4}\s*\/\s*\d{1,2}\s*\/\s*\d{1,2}\s*',
         r'\d{1,4}\s*년(?:\s*\d{1,2}\s*월)?(?:\s*\d{1,2}\s*일)?',
-        r'\d{1,2}\s*월(?:\s*\d{1,2}\s*일)?',
-        r'\d{1,2}\s*일'
+        r'\d+\s*개?월(?:\s*\d{1,2}\s*일)?',
+        r'\d+\s*(?:일|주|중순|달)', # 100일 생존기 등등을 검출하기 위함
+        r'\[DATE]\s*중순',
+        r'(?i)n년',
+        r'\d+\s*~\s*\[DATE\]차?',
     ]
     time_patterns = [
-        r'\d{1,2}\s*시간?(?:\s*\d{1,2}\s*분)?(?:\s*\d{1,2}\s*초)?', # 시 + 분 + 초
-        r'\d{1,2}\s*분(?:\s*\d{1,2}\s*초)?', # 분 + 초
-        r'\d{1,2}\s*초' # 초
+        r'(?:밤|낮|오전|오후)?\s*(?:\d+|몇)\s*시간?(?:\s*(?:\d+|몇)\s*분)?(?:\s*(?:\d+|몇)\s*초)?', # 시 + 분 + 초,
+        r'(?:\d+|몇)\s*분(?:\s*(?:\d+|몇)\s*초)?',
+        r'(?:(?:\d+\.)?\d+|몇)\s*초',
+        r'\[TIME\]쯤',
     ]
-    float_patterns = [r'\d+\.\d+']
-    number_patterns = [r'\d{1,3}(?:,\d{3})+', r'\d+']
+    days_pattern = [
+        r'(?:[\[\(][월화수목금토일](?:요일)?[\)\]]|[월화수목금토일]요일)',
+    ]
+    float_patterns = [
+        r'\d+\.\d+',
+    ]
+    number_patterns = [
+        r'\d{1,3}(?:,\d{3})+', 
+        r'\d+',
+        # 일단 단일 "만", "천" 등의 단위는 무시하자. 만오백원 이런거는 좀 거르고싶은데...
+        r'(?:(?:\[NUMBER\]|몇)(?:십만|백만|천만|십|백|천|만|억|조|경(?!기))\s*)+',
+        r'\[NUMBER\],\s*\[NUMBER\]',
+        r'\[NUMBER\]\/\[NUMBER\]',
+        r'[\+\-]\[NUMBER\]',
+    ]
     duration_patterns = [
-        r'\[TIME(?:STAMP)?\][\s]*[~-][\s]*\[TIME(?:STAMP)?\]',
+        r'\[TIME(?:STAMP)?\]\s*[~-]\s*\[TIME(?:STAMP)?\]',
+    ]
+    kda_patterns = [
+        r'\d+\/\d+\/\d+',
+    ]
+    range_patterns = [
+        r'(?:\[NUMBER\]|\[FLOAT\]|\[DATE\])\s*~\s*(?:\[NUMBER\]|\[FLOAT\]|\[DATE\])',
+    ]
+    percent_patterns = [
+        r'(?:\[NUMBER\]|\[FLOAT\])(?:%|퍼(?:센트)?|프로)', # "4프로브 잡혔다 에서 오류 생길 예정"
+    ]
+    cost_patterns = [
+        r'(?:\[NUMBER\]|\[RANGE\])\s*(?:달러|코(?!어)(?:스트|인)?|원|₩|\$|골드)',
+        r'\[COST\]\s*대',
+        r'수?(?:십|백|천|만)원',
+    ]
+    rank_patterns = [
+        r'(?:\[NUMBER\]|\[RANGE\])\s*(?:위|등|빠따?|번째)',
+        r'(?i)\bno.\s*\[NUMBER\]',
+    ]
+    anniversary_patterns = [
+        r'\[DATE\](?:주년|차)',
+    ]
+    measure_patterns = [
+        r'(?i)(?:\[NUMBER\]|\[FLOAT\])(?:[kmg]?[gb]|개|세트|셋|m|mm|ml|l|번|그램|줄|연?승|뷰|평|핑)',
+    ]
+    unit_patterns = [# |차
+        r'(?:\[NUMBER\]|\[RANGE\])(?:회차|코어?|호기?|배속?|마리|경기|레벨|렙|화|번|회|편|세대?|살|층|부|장|판|명|킬|표|수|성|군|칸|트|카|인)',
+        r'(?i)[a-zA-Z]{1,6}\s*\[NUMBER\]\s*[a-zA-Z]{1,5}\s*[a-zA-Z]{1,5}', # pro max
+        r'(?i)[a-zA-Z]{1,6}\s*\[NUMBER\]\s*[a-zA-Z]{1,5}', #  iphone 13 pro, ultra
+        r'(?i)[a-zA-Z]{1,6}\s*\[NUMBER\]', # rtx3080, iphone 3070 아이폰, 갤럭시 
+        r'(?i)\[NUMBER\]\s*[a-zA-Z]{1,5}', # 
+        r'\[DATE\]생',
+        r'\[NUMBER\]-\[NUMBER\]',
+        r'\[NUMBER\]카',
+    ]
+    step_patterns = [
+        r'\[NUMBER\]\.',
     ]
 
-    patterns = [
-        [date_patterns, '[DATE]'],
-        [time_patterns, '[TIME]'],
-        [float_patterns, '[FLOAT]'],
-        [number_patterns, '[NUMBER]'],
-        [duration_patterns, '[DURATION]']
-    ]
+    normalize_patterns = {
+        '[TIME]': [r'\[NUMBER\]\[TIME\]',],
+        ' 조회수': [r'\[UNIT\]수',],
+        '[DATE]': [r'\[NUMBER\]\s*,\[DATE\]', r'\[DATE\]\[DAYS\]',],
+        '[DURATION]': [r'(?:\[DATE\]|\[NUMBER\])\s*[~-]\s*\[DATE\]', r'\[NUMBER\]\s*[~-]\s*\[TIME]',],
+        '[COST]': [r'\[FLOAT\]\[COST\]', r'\[NUMBER\]\[COST\]',],
+        '[HEART]': [r'\[NUMBER\]\s*\[HEART\]]',],
+    }
 
-    for [pattern, token] in patterns:
-        for p in pattern:
-            df['comment'] = df['comment'].str.replace(p, token, regex=True)
+    patterns = {
+        '[DAYS]': days_pattern,
+        '[DATE]': date_patterns,
+        '[TIME]': time_patterns,
+        '[KDA]': kda_patterns,
+        '[FLOAT]': float_patterns,
+        '[NUMBER]': number_patterns,
+        '[DURATION]': duration_patterns,
+        '[RANGE]': range_patterns,
+        '[PERCENT]': percent_patterns,
+        '[COST]': cost_patterns,
+        '[RANK]': rank_patterns,
+        '[ANNIV]': anniversary_patterns,
+        '[MEASURE]': measure_patterns,
+        '[UNIT]': unit_patterns,
+        '[STEP]': step_patterns,
+    }
+
+    for key, regexs in patterns.items():
+        for regex in regexs:
+            df['comment'] = df['comment'].str.replace(regex, key, regex=True)
+
+    for key, regexs in normalize_patterns.items():
+        for regex in regexs:
+            df['comment'] = df['comment'].str.replace(regex, key, regex=True)
     return df
 
 def _replace_misc_patterns(df: pd.DataFrame):
+    def _fix_spam_likely_text(text: str):
+        pattern = r'(?:([가-힣]+)ㅣ([가-힣]+))+'
+        while len(re.findall(pattern, text)):
+            text = re.sub(pattern, r'\1\2', text)
+        return text
     df['comment'] = (
         df['comment']
             .str.replace(r'\[+', '[', regex=True)
             .str.replace(r'\]+', ']', regex=True)
-            .str.replace(r'[^\w가-힣ㄱ-ㅎㅏ-ㅣ!?%\^\(\)\[\]\{\}\-+=~,.\/<>;:\'"\s]', '', regex=True)
+            .str.replace(r'[^\w가-힣ㄱ-ㅎㅏ-ㅣ!?%&\^()\[\]{}\-+=~,./<>;:\'"\s]', '', regex=True)
             .str.replace(r'(?<!\d)([a-zA-Z가-힣ㄱ-ㅎㅏ-ㅣ!?%\^\(\)\[\]\{\}\-_+=~,.\/<>;:\'"\s])\1{3,}', r'\1\1', regex=True)
             .str.strip()
             .fillna('[EMPTY]')
             # 한글자 + 부호 + 한글자 패턴 처리
             .apply(lambda x: normalize_tlettak_font(x) if isinstance(x, str) else x)
+            .apply(lambda x: _fix_spam_likely_text(x) if isinstance(x, str) else x)
     )
     return df
 
 def _clean_duplicated_token(df: pd.DataFrame):
-    tags = ['TIMESTAMP', 'URL', 'EMAIL', 'TAG', 'HASH_TAG', 'THUMB', 'ARROW', 'TEXT_EMOJI', 'HEART', 'CONGRAT', 'DATE', 'TIME', 'FLOAT', 'NUMBER']
+    tags = [
+        'ANNIV', 'ARROW', 'CONGRAT', 'COST', 'DATE', 
+        'DURATION', 'EMAIL', 'EMPTY', 'FACE_ANGRY', 'FACE_AWKWARD', 
+        'FACE_COOL', 'FACE_CURIOUS', 'FACE_LAUGH', 'FACE_NERVOUS',
+        'FACE_SAD', 'FACE_SARCASM', 'FACE_SICK', 'FACE_SMILE',
+        'FACE_SURPRISE', 'FLOAT', 'HASH_TAG', 'HEART',
+        'IP', 'KDA', 'MEASURE', 'NO', 'NUMBER', 
+        'PERCENT', 'PRAY', 'RANGE', 'RANK', 'RATIO', 'STEP', 'TAG',
+        'TEXT_EMOJI', 'THUMB', 'TIMESTAMP', 'TIME', 'UNIT', 'URL', 'YES',
+    ]
     for tag in tags:
         pattern = r'(?:\[' + re.escape(tag) + r'\]\s*)+'
         df['comment'] = df['comment'].apply(lambda x: re.sub(pattern, f'[{tag}]', x) if isinstance(x, str) else x)
+
+    def _simplyfy_brackets(text: str):
+        text = re.sub(r'[\[\(\{]+', lambda m: m.group(0)[-1], text)
+        text = re.sub(r'[\]\)\}]+', lambda m: m.group(0)[-1], text)
+        return text
+    df['comment'] = (
+        df['comment']
+            .apply(lambda x: _simplyfy_brackets(x) if isinstance(x, str) else x)
+    )
     return df
 
 # 닉네임 정제
@@ -291,28 +422,29 @@ def _clean_nickname(df: pd.DataFrame):
 def _normalize_spam_nickname(df: pd.DataFrame):
     df['nickname'] = (
         df['nickname']
-            .str.replace(r'[1Iil]9', '19', regex=True)
-            .str.replace(r'[1Iil]9(?:x|X|금)', '19금', regex=True)
+            .str.replace(r'(?i)[1il]9', '19', regex=True)
+            .str.replace(r'(?i)[1il]9(?:x|금)', '19금', regex=True)
             .str.replace(r'[ㅇoO0]F([가-힣])', r'야\1', regex=True)
             .str.replace(r'(?:야|얏|얃)\w*(?:동|둉|덩|뎡|둥|듕)', '야동', regex=True)
             .str.replace(r'얃\w*(?:옹|용|엉|영|웅|융)', '야동', regex=True)
             .str.replace(r'(?:채|체|챼|쳬)(?:널|녈|놀|뇰|눌|뉼)', '채널', regex=True)
             .str.replace(r'(?:챈|첸|첀|쳰)(?:얼|열|올|욜|울|율)', '채널', regex=True)
             .str.replace(r'(?:프|푸)(?:사|샤)', '프사', regex=True)
-            .str.replace(r'카g|카G', '카지', regex=True)
-            .str.replace(r'갸입', '가입', regex=True)
-            .str.replace(r'V[1l]P', 'VIP', regex=True)
-            .str.replace(r'(?:온|On|on|ON)(?:팬|Fan|fan|FAN)', '온팬', regex=True)
+            .str.replace(r'(?i)카g', '카지', regex=True)
+            .str.replace(r'(?i)v[1l]p', 'VIP', regex=True)
+            .str.replace(r'(?i)(?:온|on)(?:팬|fan)', '온팬', regex=True)
             .str.replace(r'(?:뮨|문|무|뮤)(?:의|늬|희)', '문의', regex=True)
             .str.replace(r'(?:눌|뉼)(?:러|려)', '눌러', regex=True)
-            .str.replace(r'클맄', '클릭', regex=True)
-            .str.replace(r'(?:쿨|끌)(?:릭|맄)', '클릭', regex=True)
+            .str.replace(r'(?:쿨|끌)(?:릭|맄)|클맄', '클릭', regex=True)
             .str.replace(r'(?:꾸|뀨)(?:욱|육)|뀩', '꾹', regex=True)
             .str.replace(r'(?:샤|ㅅF)고', '사고', regex=True)
-            .str.replace(r'후뱡', '후방', regex=True)
-            .str.replace(r'쥬소', '주소', regex=True)
-            .str.replace(r'꾤', '꼴', regex=True)
-            .str.replace(r'계졍', '계정', regex=True)
+            .str.replace(r'갸입', '가입', regex=False)
+            .str.replace(r'뱡', '방', regex=False)
+            .str.replace(r'쥬소', '주소', regex=False)
+            .str.replace(r'꾤', '꼴', regex=False)
+            .str.replace(r'졍', '정', regex=False)
+            .str.replace(r'냬', '내', regex=False)
+            .str.replace(r'뼌', '변', regex=False)
     )
     return df
 

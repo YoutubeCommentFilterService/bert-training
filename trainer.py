@@ -269,6 +269,8 @@ if __name__ == "__main__":
 
     helper = S3Helper(root_path, 'youtube-comment-predict')
 
+    train_epoch = 3 if args.reset else 1
+
     if args.reset:
         import shutil
         shutil.rmtree('./model')
@@ -288,23 +290,24 @@ if __name__ == "__main__":
         nickname_test_size = 0.2
         comment_test_size = 0.15
 
-        torch.cuda.empty_cache()
-        nickname_model = TrainModel(df, "nickname", save_path=save_root_path, test_size=nickname_test_size, epoches=5, batch_size=batch_size)
-        nickname_model.train()
-        nickname_model.evaluate()
-        nickname_model.save()
-        torch.cuda.empty_cache()
+        for i in range(train_epoch):
+            torch.cuda.empty_cache()
+            nickname_model = TrainModel(df, "nickname", save_path=save_root_path, test_size=nickname_test_size, epoches=5, batch_size=batch_size)
+            nickname_model.train()
+            nickname_model.evaluate()
+            nickname_model.save()
+            torch.cuda.empty_cache()
 
-        del nickname_model
+            del nickname_model
 
-        torch.cuda.empty_cache()
-        comment_model = TrainModel(df, "comment", save_path=save_root_path, test_size=comment_test_size, epoches=5, batch_size=batch_size)
-        comment_model.train()
-        comment_model.evaluate()
-        comment_model.save()
-        torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
+            comment_model = TrainModel(df, "comment", save_path=save_root_path, test_size=comment_test_size, epoches=5, batch_size=batch_size)
+            comment_model.train()
+            comment_model.evaluate()
+            comment_model.save()
+            torch.cuda.empty_cache()
 
-        del comment_model
+            del comment_model
 
     if args.upload:
         # helper.upload_all_files()

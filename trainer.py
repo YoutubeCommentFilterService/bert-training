@@ -39,7 +39,7 @@ class CustomDataset(torch.utils.data.Dataset):
         return item
 
 class TrainModel():
-    def __init__(self, data: pd.core.frame.DataFrame, model_type: str, save_path:str, test_size:float = 0.1, train_model_name:str = "klue/bert-base", batch_size:int = 16, epoches: int = 10, lr: float = 1e-5):
+    def __init__(self, data: pd.core.frame.DataFrame, model_type: str, save_path:str, train_model_name:str = "klue/bert-base", batch_size:int = 16, epoches: int = 10, lr: float = 1e-5):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         self.model_type = model_type
@@ -48,8 +48,6 @@ class TrainModel():
         self.lr_bound = lr
         self.batch_size = batch_size
         self.train_model_name = train_model_name
-        self.test_size = test_size
-
         self.model_path = f"{save_path}/{self.model_type}_model"
         self.tokenizer_path = f"{save_path}/tokenizer"
 
@@ -73,6 +71,24 @@ class TrainModel():
         self.__label_pd = columns[f'{self.model_type}_class']
         self.__unique_label_pd = self.__label_pd.unique()
 
+        num_rows = data_pd.shape[0]
+        if self.model_type == 'nickname':
+            if num_rows < 4000:
+                test_size = 0.2
+            elif num_rows < 12000:
+                test_size = 0.15
+            else:
+                test_size = 0.1
+        else:
+            if num_rows < 5000:
+                test_size = 0.25
+            elif num_rows < 15000:
+                test_size = 0.2
+            else:
+                test_size = 0.15
+
+        print(self.model_type, test_size)        
+
         self.__label_index_map = {label: idx for idx, label in enumerate(self.__unique_label_pd)}
         from collections import Counter
         print(Counter(self.__label_pd))
@@ -80,7 +96,7 @@ class TrainModel():
         self.__train_datas, self.__eval_datas, \
             self.__train_labels, self.__eval_labels = train_test_split(data_pd,
                                                                        self.__label_pd,
-                                                                       test_size=self.test_size,
+                                                                       test_size=test_size,
                                                                        shuffle=True,
                                                                        stratify=self.__label_pd)
 
@@ -287,12 +303,9 @@ if __name__ == "__main__":
 
         batch_size = 16
 
-        nickname_test_size = 0.2
-        comment_test_size = 0.15
-
         for i in range(train_epoch):
             torch.cuda.empty_cache()
-            nickname_model = TrainModel(df, "nickname", save_path=save_root_path, test_size=nickname_test_size, epoches=5, batch_size=batch_size)
+            nickname_model = TrainModel(df, "nickname", save_path=save_root_path, epoches=5, batch_size=batch_size)
             nickname_model.train()
             nickname_model.evaluate()
             nickname_model.save()
@@ -301,7 +314,7 @@ if __name__ == "__main__":
             del nickname_model
 
             torch.cuda.empty_cache()
-            comment_model = TrainModel(df, "comment", save_path=save_root_path, test_size=comment_test_size, epoches=5, batch_size=batch_size)
+            comment_model = TrainModel(df, "comment", save_path=save_root_path, epoches=5, batch_size=batch_size)
             comment_model.train()
             comment_model.evaluate()
             comment_model.save()
@@ -330,14 +343,11 @@ if __name__ == "__main__":
         df['comment'] = df['comment'].str.replace(r'\\', ',', regex=True)
 
         batch_size = 16
-
-        nickname_test_size = 0.1
-        comment_test_size = 0.2
         
-        nickname_model = TrainModel(df, "nickname", save_path=save_root_path, test_size=nickname_test_size, epoches=5, batch_size=batch_size)
+        nickname_model = TrainModel(df, "nickname", save_path=save_root_path, epoches=5, batch_size=batch_size)
         nickname_model.save()
         del nickname_model
 
-        comment_model = TrainModel(df, "comment", save_path=save_root_path, test_size=comment_test_size, epoches=5, batch_size=batch_size)
+        comment_model = TrainModel(df, "comment", save_path=save_root_path, epoches=5, batch_size=batch_size)
         comment_model.save()
         del comment_model

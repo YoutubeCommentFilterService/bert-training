@@ -70,7 +70,10 @@ kda
 com
 youtube
 Youtube
-YouTube
+YouTubr
+youtuber
+Youtuber
+YouTuber
 channel
 Channel
 채널
@@ -89,6 +92,7 @@ room
 Room
 딸슐랭
 땰슐랭
+#슐랭
 account
 Account
 ACCOUNT
@@ -104,4 +108,14 @@ ONLY
 fan
 Fan
 FAN
+온팬
+온리팬스
+on팬
+On팬
+ON팬
+온fan
+온Fan
 보관
+.com
+com
+ㅏㅡㅑ

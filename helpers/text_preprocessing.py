@@ -178,30 +178,40 @@ def replace_unicode_punctuation(text: str) -> str:
 
 def _replace_special_tokens(df: pd.DataFrame, emoji_path: str):
     def _replace_emoji(text: str):
-        def _shrink_single_tags(emoji_str: str):
-            return r'(?:[' + ''.join(re.escape(c) for c in emoji_str) + r']\s*)+'
-        def _shrink_combined_tags(capture_patterns: str):
-            return r'(?:' + '|'.join(capture_patterns) + r'\s*)+'
-        text = re.sub(_shrink_single_tags('😰😨😥😓😖😩😬🥵'), '[FACE_NERVOUS]', text)
-        text = re.sub(_shrink_single_tags('😎😏'), '[FACE_COOL]', text)
-        text = re.sub(_shrink_single_tags('🤒🤕🤢🤮🤧😷'), '[FACE_SICK]', text)
-        text = re.sub(_shrink_single_tags('😬😳😶'), '[FACE_AWKWARD]', text)
-        text = re.sub(_shrink_single_tags('🤔🧐🤷🤷‍♂️🤷‍♀'), '[FACE_CURIOUS]', text)
-        text = re.sub(_shrink_single_tags('😮😲🫢😳😯😱🙀'), '[FACE_SURPRISE]', text)
-        text = re.sub(_shrink_single_tags('😠😡💢👿😤'), '[FACE_ANGRY]', text)
-        text = re.sub(_shrink_single_tags('😢😥🥲😭😞😔😟🥺🥹😿'), '[FACE_SAD]', text)
-        text = re.sub(_shrink_single_tags('😂🤣🤭😹'), '[FACE_LAUGH]', text)
-        text = re.sub(_shrink_single_tags('😀😃😄😁😆😊🙂🤗🤩🤤🤓🙃'), '[FACE_SMILE]', text)
-        text = re.sub(_shrink_single_tags('😕🤨😅'), '[FACE_SARCASM]', text)
-        text = re.sub(_shrink_single_tags('🙏🕊'), '[PRAY]', text)
-        text = re.sub(_shrink_single_tags('💞💕💕💗💘💖❤❤🧡💛💚💙💜🖤🤎🤍💟🩷🩵🩶❣💝😘🥰😍😚😙♡♥'), '[HEART]', text)
-        text = re.sub(r'(?i)' + _shrink_combined_tags([r'l(?:o|\[HEART\])?ve', r'사랑해(?:요)?\b', r'\b사랑해(?:요)?', r'좋아해?요', r'좋아해요?']), '[HEART]', text)
-        text = re.sub(_shrink_single_tags('🎉🥳🎊👏🥂'), '[CONGRAT]', text)
-        text = re.sub(_shrink_single_tags('❌'), '[NO]', text)
-        text = re.sub(_shrink_single_tags('⭕️✅'), '[YES]', text)
-        text = re.sub(_shrink_single_tags('✋👍🙋'), '[THUMB]', text)
-        text = re.sub(_shrink_single_tags('➡⬅⬇⍐↗↘↖↙→←↑↓⇒⏫🔙👆👈👇'), '[ARROW]', text)
-        text = re.sub(_shrink_combined_tags([r'[\-=]+>+', r'<+[\-=]+']), '[ARROW]', text)
+        emoji_groups = {
+            '[FACE_NERVOUS]': '😰😨😥😓😖😩😬🥵',
+            '[FACE_COOL]': '😎😏',
+            '[FACE_SICK]': '🤒🤕🤢🤮🤧😷',
+            '[FACE_AWKWARD]': '😬😳😶',
+            '[FACE_CURIOUS]': '🤔🧐🤷🤷‍♂️🤷‍♀',
+            '[FACE_SURPRISE]': '😮😲🫢😳😯😱🙀',
+            '[FACE_ANGRY]': '😠😡💢👿😤',
+            '[FACE_SAD]': '😢😥🥲😭😞😔😟🥺🥹😿',
+            '[FACE_LAUGH]': '😂🤣🤭😹',
+            '[FACE_SMILE]': '😀😃😄😁😆😊🙂🤗🤩🤤🤓🙃',
+            '[FACE_SARCASM]': '😕🤨😅🥱',
+            '[PRAY]': '🙏🕊',
+            '[HEART]': '💞💕💕💗💘💖❤❤🧡💛💚💙💜🖤🤎🤍💟🩷🩵🩶❣💝😘🥰😍😚😙♡♥',
+            '[CONGRAT]': '🎉🥳🎊👏🥂',
+            '[NO]': '❌',
+            '[YES]': '⭕️✅',
+            '[THUMB]': '✋👍🙋',
+            '[ARROW]': '➡⬅⬇⍐↗↘↖↙→←↑↓⇒⏫🔙👆👈👇',
+        }
+
+        text_base_emoji_groups = {
+            '[HEART]': [r'l(?:o|\[HEART\])?ve', r'사랑해(?:요)?\b', r'\b사랑해(?:요)?', r'좋아해?요', r'좋아해요?'],
+            '[ARROW]': [r'[\-=]+>+', r'<+[\-=]+']
+        }
+
+        for tag, emoji_str in emoji_groups.items():
+            pattern = r'(?:[' + ''.join(re.escape(c) for c in emoji_str) + r']\s*)+'
+            text = re.sub(pattern, tag, text)
+
+        for tag, emoji_arr in text_base_emoji_groups.items():
+            pattern =r'(?i)' +  r'(?:' + '|'.join(emoji_arr) + r'\s*)+'
+            text = re.sub(pattern, tag, text)
+
         return text
     with open(emoji_path, 'r', encoding='utf-8') as f:
         emojis = [line.strip() for line in f.readlines()]
@@ -324,7 +334,6 @@ def _replace_structed_patterns(df: pd.DataFrame):
 
     normalize_patterns = {
         '[TIME]': [r'\[NUMBER\]\[TIME\]',],
-        ' 조회수': [r'\[UNIT\]수',],
         '[DATE]': [r'\[NUMBER\]\s*,\[DATE\]', r'\[DATE\]\[DAYS\]',],
         '[DURATION]': [r'(?:\[DATE\]|\[NUMBER\])\s*[~-]\s*\[DATE\]', r'\[NUMBER\]\s*[~-]\s*\[TIME]',],
         '[COST]': [r'\[FLOAT\]\[COST\]', r'\[NUMBER\]\[COST\]',],
@@ -392,15 +401,6 @@ def _clean_duplicated_token(df: pd.DataFrame):
     for tag in tags:
         pattern = r'(?:\[' + re.escape(tag) + r'\]\s*)+'
         df['comment'] = df['comment'].apply(lambda x: re.sub(pattern, f'[{tag}]', x) if isinstance(x, str) else x)
-
-    def _simplyfy_brackets(text: str):
-        text = re.sub(r'[\[\(\{]+', lambda m: m.group(0)[-1], text)
-        text = re.sub(r'[\]\)\}]+', lambda m: m.group(0)[-1], text)
-        return text
-    df['comment'] = (
-        df['comment']
-            .apply(lambda x: _simplyfy_brackets(x) if isinstance(x, str) else x)
-    )
     return df
 
 # 닉네임 정제
@@ -420,6 +420,10 @@ def _clean_nickname(df: pd.DataFrame):
             r'\1',
             text
         )
+    
+    def _remove_underscore_format(text: str):
+        m = re.match(r'^(?!user).*(_[a-zA-Z0-9]{2,7})$', text)
+        return text[:m.span(1)[0]] if m else text
     
     def _remove_if_hyphen_and_odd_word(text: str):
         # group(1): 캡처된 그룹
@@ -451,6 +455,7 @@ def _clean_nickname(df: pd.DataFrame):
             .str.replace(r'^@', '', regex=True)
             .apply(lambda x: _change_if_nickname_is_default(x) if isinstance(x, str) else x)
             .apply(lambda x: _change_if_starts_with_user(x) if isinstance(x, str) else x)
+            .apply(lambda x: _remove_underscore_format(x) if isinstance(x, str) else x)
             .apply(lambda x: _remove_if_hyphen_and_odd_word(x) if isinstance(x, str) else x)
             .apply(lambda x: _normalize_nickname(x) if isinstance(x, str) else x)
     )
@@ -458,26 +463,30 @@ def _clean_nickname(df: pd.DataFrame):
 
 # 닉네임 정규화
 def _normalize_spam_nickname(df: pd.DataFrame):
-    df['nickname'] = (
-        df['nickname']
-            .str.replace(r'(?i)[1il]9', '19', regex=True)
-            .str.replace(r'(?i)[1il]9(?:x|금)', '19금', regex=True)
-            .str.replace(r'[ㅇoO0]F([가-힣])', r'야\1', regex=True)
-            .str.replace(r'(?:야|얏|얃)\w*(?:동|둉|덩|뎡|둥|듕)', '야동', regex=True)
-            .str.replace(r'얃\w*(?:옹|용|엉|영|웅|융)', '야동', regex=True)
-            .str.replace(r'(?:채|체|챼|쳬)(?:널|녈|놀|뇰|눌|뉼)', '채널', regex=True)
-            .str.replace(r'(?:챈|첸|첀|쳰)(?:얼|열|올|욜|울|율)', '채널', regex=True)
-            .str.replace(r'(?:프|푸)(?:사|샤)', '프사', regex=True)
-            .str.replace(r'(?i)(?:카|캬)(?:g|쥐)', '카지', regex=True)
-            .str.replace(r'(?i)v[1l]p', 'VIP', regex=True)
-            .str.replace(r'(?i)(?:온|on)(?:팬|fan)', '온팬', regex=True)
-            .str.replace(r'(?:뮨|문|무|뮤)(?:의|늬|희)', '문의', regex=True)
-            .str.replace(r'(?:눌|뉼)(?:러|려)', '눌러', regex=True)
-            .str.replace(r'(?:쿨|끌)(?:릭|맄)|클맄', '클릭', regex=True)
-            .str.replace(r'(?:꾸|뀨)(?:욱|육)|뀩', '꾹', regex=True)
-            .str.replace(r'(?:샤|ㅅF)고', '사고', regex=True)
-            .str.replace(r'쥬소', '주소', regex=False)
-    )
+    for column in df.columns:
+        df[column] = (
+            df[column]
+                .str.replace(r'(?i)[1il]9', '19', regex=True)
+                .str.replace(r'(?i)[1il]9(?:x|금)', '19금', regex=True)
+                .str.replace(r'(?i)[o0]F([가-힣])', r'야\1', regex=True)
+                .str.replace(r'(?:야|얏|얃)(?:동|덩|둥)', '야동', regex=True)
+                .str.replace(r'얃(?:옹|용|엉|영|웅|융)', '야동', regex=True)
+                .str.replace(r'(?:채|체|챠)(?:널|놀|눌)', '채널', regex=True)
+                .str.replace(r'(?:챈|첸)(?:얼|열|올|욜|울|율)', '채널', regex=True)
+                .str.replace(r'(?:프|푸|퓨)(?:사|샤)', '프사', regex=True)
+                .str.replace(r'(?i)(?:카|캬)(?:g|쥐)', '카지', regex=True)
+                .str.replace(r'(?i)v[1l]p', 'VIP', regex=True)
+                .str.replace(r'(?i)(?:온|on)(?:팬|fan)', '온팬', regex=True)
+                .str.replace(r'(?:뮨|문|무|뮤)(?:의|늬|희)', '문의', regex=True)
+                .str.replace(r'눌려', '눌러', regex=False)
+                .str.replace(r'(?:쿨|끌|클)(?:릭|맄)', '클릭', regex=True)
+                .str.replace(r'(?:꾸|뀨)(?:우|유)*(?:욱|육)|뀩', '꾹', regex=True)
+                .str.replace(r'샤고', '사고', regex=False)
+                .str.replace(r'쥬(?:소|쇼)', '주소', regex=True)
+                .str.replace(r'(?:분|뷴)(?:수|슈)', '분수', regex=True)
+                .str.replace(r'(?i)(?:먹|멱)(?:t|틔|튀)', '먹튀', regex=True)
+                .str.replace('뷴태', '변태', regex=False)
+        )
     return df
 
 def _remove_isolated_english(df: pd.DataFrame):
@@ -507,7 +516,10 @@ def _preprocess_incorrect_char(df: pd.DataFrame):
         '뵬': '볼', '냬': '내', '뇰': '놀', '녈': '널',
         '젼': '전', '갸': '가', '뱡': '방', '꾤': '꼴',
         '졍': '정', '텨': '터', '챼': '채', '뼌': '변',
-        '퍤': '팬', '퍠': '패', '뉼': '눌'
+        '퍤': '팬', '퍠': '패', '뉼': '눌', '땰': '딸',
+        '즁': '중', 'ㅅF': '샤', '뉼': '눌', '쳬': '체',
+        '둉': '동', '듕': '둥', '뎡': '덩', '첀': '챈',
+        '쳰': '첸', 'ㅇF': '야'
     }
     pattern = r'(' + '|'.join(map(re.escape, conversion_dict.keys())) + r')'
     for column in df.columns:
@@ -517,6 +529,7 @@ def _preprocess_incorrect_char(df: pd.DataFrame):
 
 def run_text_preprocessing(df: pd.DataFrame, emoji_path: str):
     df = _preprocess_incorrect_char(df)
+    df = _normalize_spam_nickname(df)
     df = (
         _normalize_unicode(df)
             .pipe(_replace_special_tokens, emoji_path)
@@ -527,7 +540,6 @@ def run_text_preprocessing(df: pd.DataFrame, emoji_path: str):
     )
     df = (
         _clean_nickname(df)
-            .pipe(_normalize_spam_nickname)
             .pipe(_remove_isolated_english)
             .pipe(_set_default_nickname)
     )

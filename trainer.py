@@ -12,7 +12,7 @@ import torch
 
 from sklearn.model_selection import train_test_split
 
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_scheduler
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_scheduler, AutoConfig
 from optimum.onnxruntime import ORTModelForSequenceClassification
 from onnxruntime import SessionOptions, GraphOptimizationLevel
 
@@ -39,7 +39,7 @@ class CustomDataset(torch.utils.data.Dataset):
         return item
 
 class TrainModel():
-    def __init__(self, data: pd.core.frame.DataFrame, model_type: str, save_path:str, train_model_name:str = "klue/bert-base", batch_size:int = 16, epoches: int = 10, lr: float = 1e-5):
+    def __init__(self, data: pd.core.frame.DataFrame, model_type: str, save_path:str, train_model_name:str = "klue/bert-base", batch_size:int = 16, epoches: int = 10, lr: float = 1e-4):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         self.model_type = model_type
@@ -123,16 +123,34 @@ class TrainModel():
         self._tokenizer = tokenizer
 
     def __load_model(self):
+        current_labels_len = len(self.__unique_label_pd)
         if os.path.isdir(self.model_path) and any(os.scandir(self.model_path)):
-            model = AutoModelForSequenceClassification.from_pretrained(self.model_path)
+            config = AutoConfig.from_pretrained(self.model_path)
+            original_num_labels = config.num_labels
+
+            model = AutoModelForSequenceClassification.from_pretrained(self.model_path,
+                                                                       num_labels=current_labels_len,
+                                                                       ignore_mismatched_sizes=True)
+    
+            if current_labels_len != original_num_labels:
+                parameter_lr = 2e-5
+                classifier_lr = 1e-4
+            else:
+                parameter_lr = 2e-5
+                classifier_lr = 1e-3
         else:
             model = AutoModelForSequenceClassification.from_pretrained(self.train_model_name, 
-                                                                       num_labels=len(self.__unique_label_pd.tolist()))
+                                                                       num_labels=current_labels_len)
+            parameter_lr = 3e-5
+            classifier_lr = 1e-3
 
-        model.resize_token_embeddings(len(self._tokenizer))
+        self.__optimizer = AdamW([
+            {"params": model.bert.parameters(), "lr": parameter_lr},         # 사전학습된 인코더: 낮은 학습률
+            {"params": model.classifier.parameters(), "lr": classifier_lr},   # 새로운 분류기: 높은 학습률
+        ])
+
+        model.resize_token_embeddings(len(self._tokenizer), mean_resizing=True)
         self.__model = model
-        self.__optimizer = AdamW(model.parameters(), lr=self.lr_bound)
-
 
     def __get_loader(self):
         def get_encoding(datas: List[Any]) -> Any:
@@ -155,9 +173,9 @@ class TrainModel():
     def train(self):
         device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.__model.to(self.device)
+        self.__model.train()
         scaler = torch.amp.GradScaler(device_type)
         for epoch in range(self.epoches):
-            self.__model.train()
             loop = tqdm(self.__train_loader, leave=True)
             for batch in loop:
                 batch = {key: val.to(self.device) for key, val in batch.items()}
@@ -177,7 +195,7 @@ class TrainModel():
                 loop.set_postfix(loss=loss.item())
 
                 del outputs, loss, batch
-                torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
     # 검증
     def evaluate(self):
         self.__model.to(self.device)
@@ -304,14 +322,14 @@ if __name__ == "__main__":
         batch_size = 16
 
         for i in range(train_epoch):
-            torch.cuda.empty_cache()
-            nickname_model = TrainModel(df, "nickname", save_path=save_root_path, epoches=5, batch_size=batch_size)
-            nickname_model.train()
-            nickname_model.evaluate()
-            nickname_model.save()
-            torch.cuda.empty_cache()
+            # torch.cuda.empty_cache()
+            # nickname_model = TrainModel(df, "nickname", save_path=save_root_path, epoches=5, batch_size=batch_size)
+            # nickname_model.train()
+            # nickname_model.evaluate()
+            # nickname_model.save()
+            # torch.cuda.empty_cache()
 
-            del nickname_model
+            # del nickname_model
 
             torch.cuda.empty_cache()
             comment_model = TrainModel(df, "comment", save_path=save_root_path, epoches=5, batch_size=batch_size)

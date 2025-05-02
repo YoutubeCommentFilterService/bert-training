@@ -304,6 +304,7 @@ if __name__ == "__main__":
     helper = S3Helper(root_path, 'youtube-comment-predict')
 
     train_epoch = 3 if args.reset else 1
+    train_epoch = 3 if not os.path.exists('./model/nickname_model') else 1
 
     if args.reset:
         import shutil

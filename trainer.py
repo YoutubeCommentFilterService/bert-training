@@ -1,24 +1,19 @@
 import os
 from pathlib import Path
-from typing import Any, List, Set
+from typing import Any, List, Optional, Set, Union
 from tqdm import tqdm
 from dotenv import load_dotenv
 import argparse
+from collections import Counter
 
 import pandas as pd
-import numpy as np
 
 import torch
 
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
 
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_scheduler, AutoConfig
-from optimum.onnxruntime import ORTModelForSequenceClassification
-from onnxruntime import SessionOptions, GraphOptimizationLevel
-
-from torch.utils.data import DataLoader
-from torch.optim import AdamW
-from yaml import add_path_resolver
 
 from helpers.text_preprocessing import run_text_preprocessing
 
@@ -31,45 +26,72 @@ class CustomDataset(torch.utils.data.Dataset):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        # item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
-        # item['labels'] = torch.tensor(self.labels[idx])
-        item = {key: val[idx].clone().detach() if isinstance(val[idx], torch.Tensor) else val[idx] 
-                for key, val in self.encodings.items()}
+        item = {
+            key: val[idx].clone().detach() if isinstance(val[idx], torch.Tensor) else val[idx] 
+            for key, val in self.encodings.items()
+        }
         item['labels'] = self.labels[idx]
         return item
+    
+class TokenizeManager():
+    def __init__(self, train_model_name:str="klue/bert-base", tokenizer_path:str="./model/tokenizer"):
+        self.train_model_name = train_model_name
+        self.tokenizer_path = tokenizer_path
+
+    def is_valid_tokenizer_dir(self, path: str) -> bool:
+        return os.path.isdir(path) and any(os.scandir(path))
+
+    def update_tokenizer(self):
+        def load_tokens_set(path: str) -> Set[str]:
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    return set([line.strip() for line in f if line.strip()])
+            except FileNotFoundError:
+                return set()
+            
+        def get_unique_token(path: str, existing_tokens_list: Optional[List[str]]) -> List[str]:
+            more_tokens_set = load_tokens_set(path)
+            existing_tokens_set = set(existing_tokens_list or [])
+            return list(more_tokens_set - existing_tokens_set)
+        
+        tokenizer = AutoTokenizer.from_pretrained(
+            self.tokenizer_path if self.is_valid_tokenizer_dir(self.tokenizer_path) else self.train_model_name
+        )
+
+        unique_special_tokens = get_unique_token('./tokens/special_tokens.txt', tokenizer.additional_special_tokens)
+        unique_common_tokens = get_unique_token('./tokens/common_tokens.txt', tokenizer.get_vocab().keys())
+
+        if unique_special_tokens:
+            tokenizer.add_special_tokens({'additional_special_tokens': unique_special_tokens})
+        if unique_common_tokens:
+            tokenizer.add_tokens(unique_common_tokens)
+        self._tokenizer = tokenizer
+
+    def save_tokenizer(self):
+        self._tokenizer.save_pretrained(self.tokenizer_path)
 
 class TrainModel():
-    def __init__(self, data: pd.core.frame.DataFrame, model_type: str, save_path:str, train_model_name:str = "klue/bert-base", batch_size:int = 16, epoches: int = 10, lr: float = 1e-4):
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    def __init__(self, data: pd.DataFrame, model_type: str, save_path:str, train_model_name:str = "klue/bert-base", batch_size:int = 16, epoches: int = 10):
+        self.device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = torch.device(self.device_type)
 
         self.model_type = model_type
         self.max_token_length = 256 if model_type == 'comment' else 40
         self.epoches = epoches
-        self.lr_bound = lr
         self.batch_size = batch_size
-        self.train_model_name = train_model_name
-        self.model_path = f"{save_path}/{self.model_type}_model"
-        self.tokenizer_path = f"{save_path}/tokenizer"
+        self.model_path = f"{save_path}/{model_type}_model"
+        self._tokenizer = AutoTokenizer.from_pretrained(f"{save_path}/tokenizer")
 
-        self.__assign_pandas_data(data)
-        self.__load_tokenizer()
-        self.__load_model()
-        self.__get_loader()
+        self._assign_pandas_data(data)
+        self._load_model(self.model_path, train_model_name)
 
-        training_steps = len(self.__train_loader) * epoches
-        self.scheduler = get_scheduler('linear',
-                                       optimizer=self.__optimizer,
-                                       num_warmup_steps=0,
-                                       num_training_steps=training_steps)
-
-
-    def __assign_pandas_data(self, data: pd.core.frame.DataFrame):
+    def _assign_pandas_data(self, data: pd.DataFrame):
         columns = data[[f'{self.model_type}_class', f'{self.model_type}']]
         columns = columns.dropna(how='any')
         data_pd = columns[f'{self.model_type}']
 
-        self.__label_pd = columns[f'{self.model_type}_class']
-        self.__unique_label_pd = self.__label_pd.unique()
+        label_pd = columns[f'{self.model_type}_class']
+        unique_label_pd = label_pd.unique()
 
         num_rows = data_pd.shape[0]
         if self.model_type == 'nickname':
@@ -87,168 +109,174 @@ class TrainModel():
             else:
                 test_size = 0.15
 
-        print(self.model_type, test_size)        
+        self._data_pd, self._label_pd, self._test_size = data_pd, label_pd, test_size
+        self._label_index_map = {label: idx for idx, label in enumerate(unique_label_pd)}
 
-        self.__label_index_map = {label: idx for idx, label in enumerate(self.__unique_label_pd)}
-        from collections import Counter
-        print(Counter(self.__label_pd))
+        print(f'model: {self.model_type}\n\ttest_size: {test_size}\n\tdata_count: {Counter(label_pd)}')
 
-        self.__train_datas, self.__eval_datas, \
-            self.__train_labels, self.__eval_labels = train_test_split(data_pd,
-                                                                       self.__label_pd,
-                                                                       test_size=test_size,
-                                                                       shuffle=True,
-                                                                       stratify=self.__label_pd)
+    def _generate_train_test_data(self):
+        self._train_datas, self._eval_datas, \
+            self._train_labels, self._eval_labels = train_test_split(
+                self._data_pd,
+                self._label_pd,
+                test_size=self._test_size,
+                shuffle=True,
+                stratify=self._label_pd
+            )
+        
+    def _generate_scheduler(self):
+        training_steps = len(self._train_loader) * self.epoches
+        self.scheduler = get_scheduler(
+            'linear',
+            optimizer=self._optimizer,
+            num_warmup_steps=0,
+            num_training_steps=training_steps
+        )
 
-    def __load_tokenizer(self) -> None:
-        def load_tokens(path: str) -> Set[str]:
-            with open(path, 'r', encoding='utf-8') as f:
-                return set([line.strip() for line in f if line.strip()])
-        if os.path.isdir(self.tokenizer_path) and any(os.scandir(self.tokenizer_path)):
-            tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path)
-        else:  
-            tokenizer = AutoTokenizer.from_pretrained(self.train_model_name)
-
-        special_tokens = load_tokens('./tokens/special_tokens.txt')
-        common_tokens = load_tokens('./tokens/common_tokens.txt')
-
-        existing_special_tokens = set(tokenizer.additional_special_tokens)
-        existing_common_tokens = set(tokenizer.get_vocab().keys())
-
-        unique_special_tokens = list(special_tokens - existing_special_tokens)
-        unique_common_tokens = list(common_tokens - existing_common_tokens)
-
-        tokenizer.add_special_tokens({'additional_special_tokens': unique_special_tokens})
-        tokenizer.add_tokens(unique_common_tokens)
-        self._tokenizer = tokenizer
-
-    def __load_model(self):
-        current_labels_len = len(self.__unique_label_pd)
-        if os.path.isdir(self.model_path) and any(os.scandir(self.model_path)):
-            config = AutoConfig.from_pretrained(self.model_path)
+    def _load_model(self, model_path:str, train_model_name:str):
+        current_labels_len = len(self._label_pd.unique())
+        
+        if self.is_valid_model_dir(model_path):
+            config = AutoConfig.from_pretrained(model_path)
             original_num_labels = config.num_labels
 
-            model = AutoModelForSequenceClassification.from_pretrained(self.model_path,
-                                                                       num_labels=current_labels_len,
-                                                                       ignore_mismatched_sizes=True)
-    
+            model = AutoModelForSequenceClassification.from_pretrained(
+                model_path,
+                num_labels=current_labels_len,
+                ignore_mismatched_sizes=True
+            )
             if current_labels_len != original_num_labels:
-                parameter_lr = 2e-5
-                classifier_lr = 1e-4
+                parameter_lr, classifier_lr = 2e-5, 1e-4
             else:
-                parameter_lr = 2e-5
-                classifier_lr = 1e-3
+                parameter_lr, classifier_lr = 2e-5, 1e-3
         else:
-            model = AutoModelForSequenceClassification.from_pretrained(self.train_model_name, 
-                                                                       num_labels=current_labels_len)
-            parameter_lr = 3e-5
-            classifier_lr = 1e-3
+            model = AutoModelForSequenceClassification.from_pretrained(
+                train_model_name, 
+                num_labels=current_labels_len
+            )
+            parameter_lr, classifier_lr = 3e-5, 1e-3
 
-        self.__optimizer = AdamW([
+        self._optimizer = torch.optim.AdamW([
             {"params": model.bert.parameters(), "lr": parameter_lr},         # 사전학습된 인코더: 낮은 학습률
             {"params": model.classifier.parameters(), "lr": classifier_lr},   # 새로운 분류기: 높은 학습률
         ])
 
         model.resize_token_embeddings(len(self._tokenizer), mean_resizing=True)
-        self.__model = model
+        self._model = model
 
-    def __get_loader(self):
+    def _generate_loader(self):
         def get_encoding(datas: List[Any]) -> Any:
-            return self._tokenizer(list(datas),
-                                truncation=True,
-                                padding=True,
-                                max_length=self.max_token_length,
-                                add_special_tokens=True,
-                                return_tensors='pt')
-        train_encoding = get_encoding(list(self.__train_datas))
-        eval_encoding = get_encoding(list(self.__eval_datas))
+            return self._tokenizer(
+                list(datas),
+                truncation=True,
+                padding=True,
+                max_length=self.max_token_length,
+                add_special_tokens=True,
+                return_tensors='pt'
+            )
+        
+        def get_loader(datas:list, labels:list, shuffle:bool) -> torch.utils.data.DataLoader:
+            encoding = get_encoding(datas)
+            datasets = CustomDataset(encoding, labels, self._label_index_map)
+            return torch.utils.data.DataLoader(datasets, batch_size=self.batch_size, shuffle=shuffle)
+        
+        self._generate_train_test_data()
+        self._train_loader = get_loader(self._train_datas.tolist(), self._train_labels.tolist(), True)
+        self._eval_loader = get_loader(self._eval_datas.tolist(), self._eval_labels.tolist(), False)
 
-        train_datasets = CustomDataset(train_encoding, self.__train_labels.tolist(), self.__label_index_map)
-        eval_datasets = CustomDataset(eval_encoding, self.__eval_labels.tolist(), self.__label_index_map)
-
-        self.__train_loader = DataLoader(train_datasets, batch_size=self.batch_size, shuffle=True)
-        self.__eval_loader = DataLoader(eval_datasets, batch_size=self.batch_size, shuffle=False)
+    def is_valid_model_dir(self, path: str) -> bool:
+        return os.path.isdir(path) and any(os.scandir(path))
 
     # 학습
     def train(self):
-        device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.__model.to(self.device)
-        self.__model.train()
-        scaler = torch.amp.GradScaler(device_type)
+        self._model.to(self.device)
+        self._generate_loader()
+        self._generate_scheduler()
+
+        scaler = torch.amp.GradScaler(self.device)
         for epoch in range(self.epoches):
-            loop = tqdm(self.__train_loader, leave=True)
+            self._model.train()
+            loop = tqdm(self._train_loader, desc=f'  {self.model_type} Epoch {epoch}', leave=True)
             for batch in loop:
                 batch = {key: val.to(self.device) for key, val in batch.items()}
 
-                self.__optimizer.zero_grad()
+                self._optimizer.zero_grad()
 
-                with torch.autocast(device_type):
-                    outputs = self.__model(**batch)
+                with torch.autocast(self.device_type):
+                    outputs = self._model(**batch)
                     loss = outputs.loss
 
                 scaler.scale(loss).backward()
-                scaler.step(self.__optimizer)
+                scaler.step(self._optimizer)
                 scaler.update()
                 self.scheduler.step()
 
-                loop.set_description(f'Epoch {epoch}')
                 loop.set_postfix(loss=loss.item())
 
                 del outputs, loss, batch
             torch.cuda.empty_cache()
+
+            if epoch % 2 == 1:
+                self.evaluate()
+
     # 검증
-    def evaluate(self):
-        self.__model.to(self.device)
-        self.__model.eval()
+    def evaluate(self) -> Union[float, str]:
+        self._model.to(self.device)
+        self._model.eval()
         val_loss = 0
         correct = 0
+        all_preds = []
+        all_labels = []
 
         with torch.no_grad():
-            for batch in self.__eval_loader:
+            for batch in self._eval_loader:
                 batch = {key: val.to(self.device).clone().detach() for key, val in batch.items()}
 
-                outputs = self.__model(**batch)
-                val_loss += outputs.loss.item()
+                outputs = self._model(**batch)
+                val_loss += outputs.loss.item() * self.batch_size
 
                 predictions = torch.argmax(outputs.logits, dim=-1)
+                labels = batch['labels']
+
                 correct += (predictions == batch['labels']).sum().item()
 
+                # cpu로 이동
+                all_preds.extend(predictions.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
+
                 del outputs, predictions, batch
-                torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
 
-        avg_val_loss = val_loss / len(self.__eval_loader)
-        accuracy = correct / len(self.__eval_loader.dataset)
-        print(f"Validation Loss: {avg_val_loss}")
-        print(f"Accuracy: {accuracy}")
+        avg_val_loss = val_loss / len(self._eval_loader)
 
-        return avg_val_loss, accuracy
+        # binary: 이진분류
+        # macro: 클래스 별 평균
+        # weighted: 클래스 수를 가중치로
+        report = classification_report(
+            all_labels, all_preds, digits=6, output_dict=False
+        )
+
+        print(f"  Validation Loss: {avg_val_loss}")
+        print(report)
+
+        return avg_val_loss, report
 
     def save(self):
-        self.__model.save_pretrained(self.model_path)
-        self._tokenizer.save_pretrained(self.tokenizer_path)
+        self._model.save_pretrained(self.model_path)
 
-        fp16 = self.__model.half()
+        fp16 = self._model.half()
         fp16.save_pretrained(self.model_path+"_fp16")
         print(f"{self.model_type} model and tokenizer saved")
 
-        # 당분간 onnxruntime은 사용하지 않기로 한다.
-        # torch로 하는것도 버그 터져 죽겠는데 뭔 onnx여...
-        # sess_options = SessionOptions()
-        # sess_options.graph_optimization_level = GraphOptimizationLevel.ORT_ENABLE_ALL
-
-        # ort_model = ORTModelForSequenceClassification.from_pretrained(self.__model_path, export=True, use_io_binding=True)
-        # ort_model.save_pretrained(self.__onnx_save_path, session_options=sess_options)
-        # print(f"{self.__type} onnx saved")
-
-    def predict(self, text):
+    def predict(self, text) -> str:
         tokens = self._tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=self.max_token_length)
         tokens = {key: val.to(self.device) for key, val in tokens.items()}
 
         with torch.no_grad():
-            outputs = self.__model(**tokens)
+            outputs = self._model(**tokens)
             predicted_class = torch.argmax(outputs.logits, dim=1).item()
 
-        return self.__label_pd[predicted_class]
+        return self._label_pd[predicted_class]
 
 def delete_model(model):
     try:
@@ -256,8 +284,14 @@ def delete_model(model):
     except:
         print("model 없음")
 
-# from google_drive_helper import GoogleDriveHelper
 from helpers.s3_helper import S3Helper
+
+def train_and_eval(model:TrainModel, epoch:int) -> None:
+    print(f' {model.model_type}')
+    model.train()
+    if epoch % 2 == 1:
+        model.evaluate()
+    torch.cuda.empty_cache()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -271,12 +305,6 @@ if __name__ == "__main__":
         parser.print_help()
         exit(0)
 
-    space_pattern = r'[가-힣ㄱ-ㅎㅏ-ㅣa-zA-Z0-9:]+[\s!?@.,❤]*'
-    pattern = r"(\w)([\s!?@.,❤]+)(\b\w\b)"
-
-    # save_root_path = '/content/drive/MyDrive/comment-filtering'
-    # data = pd.read_csv("./dataset.csv", usecols=["nickname", "comment", "nickname_class", "comment_class"])
-
     save_root_path = Path(os.path.join(os.path.expanduser('~'), 'youtube-comment-colab', 'model'))
     if not save_root_path.exists():
         save_root_path.mkdir()
@@ -284,33 +312,21 @@ if __name__ == "__main__":
     project_root_dir = os.path.dirname(os.path.abspath(__file__))
     load_dotenv(os.path.join(project_root_dir, "env", ".env"))
 
-    google_drive_owner_email = os.getenv("GOOGLE_DRIVE_OWNER_EMAIL")
-    do_not_download_list = ['dataset-backup']
-    do_not_upload_list = ['dataset.csv']
-    google_client_key_path = os.path.join(project_root_dir, 'env', 'ml-server-key.json')
+    project_root_path = os.path.dirname(__file__)
 
-    # helper = GoogleDriveHelper(project_root_dir=project_root_dir,
-    #                         google_client_key_path=google_client_key_path,
-    #                         google_drive_owner_email=google_drive_owner_email,
-    #                         do_not_download_list=do_not_download_list,
-    #                         do_not_upload_list=do_not_upload_list,
-    #                         local_target_root_dir_name='model',
-    #                         drive_root_folder_name='comment-filtering')
-    
-    # helper.print_directory_metadata()
-    # helper.download_all_files('dataset.csv')
-    root_path = os.path.dirname(__file__)
+    helper = S3Helper(project_root_path, 'youtube-comment-predict')
 
-    helper = S3Helper(root_path, 'youtube-comment-predict')
-
-    train_epoch = 3 if args.reset else 1
-    train_epoch = 3 if not os.path.exists('./model/nickname_model') else 1
+    main_train_loop_counter = 3 if args.reset or not os.path.exists('./model/nickname_model') else 1
 
     if args.reset:
         import shutil
         shutil.rmtree('./model')
 
     if args.train:
+        tokenizer = TokenizeManager()
+        tokenizer.update_tokenizer()
+        tokenizer.save_tokenizer()
+
         helper.download(['dataset.csv'])
         df = pd.read_csv(os.path.join(save_root_path, "dataset.csv"), usecols=["nickname", "comment", "nickname_class", "comment_class"])
         # csv로 내보낼때 변경한 값을 처리
@@ -318,44 +334,23 @@ if __name__ == "__main__":
 
         df = run_text_preprocessing(df, './tokens/emojis.txt')
 
-        print(df['comment'])
-
         batch_size = 16
+        train_loop_counter = 5
 
-        for i in range(train_epoch):
-            # torch.cuda.empty_cache()
-            # nickname_model = TrainModel(df, "nickname", save_path=save_root_path, epoches=5, batch_size=batch_size)
-            # nickname_model.train()
-            # nickname_model.evaluate()
-            # nickname_model.save()
-            # torch.cuda.empty_cache()
+        nickname_model = TrainModel(df, "nickname", save_path=save_root_path, epoches=train_loop_counter, batch_size=batch_size)
+        comment_model = TrainModel(df, "comment", save_path=save_root_path, epoches=train_loop_counter, batch_size=batch_size)
 
-            # del nickname_model
+        for i in range(main_train_loop_counter):
+            print(f'train epoch: {i + 1}')
+            train_and_eval(nickname_model, train_loop_counter)
+            train_and_eval(comment_model, train_loop_counter)
 
-            torch.cuda.empty_cache()
-            comment_model = TrainModel(df, "comment", save_path=save_root_path, epoches=5, batch_size=batch_size)
-            comment_model.train()
-            comment_model.evaluate()
-            comment_model.save()
-            torch.cuda.empty_cache()
-
-            del comment_model
+        nickname_model.save()
+        comment_model.save()
+        del nickname_model, comment_model
 
     if args.upload:
-        # helper.upload_all_files()
         helper.upload(from_local=True)
-
-    # for folder_name, inner_data in helper.directory_struct.items():
-    #     if folder_name == 'comment-filtering':
-    #         continue
-        
-    #     for file_name, metadata in inner_data.items():
-    #         if file_name in ['id', 'parent_id']:
-    #             continue
-            
-    #         helper.delete_file(metadata.get('id'))
-        
-    #     helper.delete_file(inner_data.get('id'))
 
     if args.save:
         df = pd.read_csv(os.path.join(save_root_path, "dataset.csv"), usecols=["nickname", "comment", "nickname_class", "comment_class"])

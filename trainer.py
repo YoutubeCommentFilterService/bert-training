@@ -316,7 +316,12 @@ if __name__ == "__main__":
 
     helper = S3Helper(project_root_path, 'youtube-comment-predict')
 
-    main_train_loop_counter = 3 if args.reset or not os.path.exists('./model/nickname_model') else 1
+    if args.reset or not os.path.exists('./model/nickname_model'):
+        main_train_loops = 3
+        train_epoches = 3
+    else:
+        main_train_loops = 1
+        train_epoches = 5
 
     if args.reset:
         import shutil
@@ -335,15 +340,14 @@ if __name__ == "__main__":
         df = run_text_preprocessing(df, './tokens/emojis.txt')
 
         batch_size = 16
-        train_loop_counter = 5
 
-        nickname_model = TrainModel(df, "nickname", save_path=save_root_path, epoches=train_loop_counter, batch_size=batch_size)
-        comment_model = TrainModel(df, "comment", save_path=save_root_path, epoches=train_loop_counter, batch_size=batch_size)
+        nickname_model = TrainModel(df, "nickname", save_path=save_root_path, epoches=train_epoches, batch_size=batch_size)
+        comment_model = TrainModel(df, "comment", save_path=save_root_path, epoches=train_epoches, batch_size=batch_size)
 
-        for i in range(main_train_loop_counter):
+        for i in range(main_train_loops):
             print(f'train epoch: {i + 1}')
-            train_and_eval(nickname_model, train_loop_counter)
-            train_and_eval(comment_model, train_loop_counter)
+            train_and_eval(nickname_model, train_epoches)
+            train_and_eval(comment_model, train_epoches)
 
         nickname_model.save()
         comment_model.save()

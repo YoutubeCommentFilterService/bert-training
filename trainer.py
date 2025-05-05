@@ -5,6 +5,7 @@ from tqdm import tqdm
 from dotenv import load_dotenv
 import argparse
 from collections import Counter
+from helpers.tokenize_manager import TokenizeManager
 
 import pandas as pd
 
@@ -32,43 +33,6 @@ class CustomDataset(torch.utils.data.Dataset):
         }
         item['labels'] = self.labels[idx]
         return item
-    
-class TokenizeManager():
-    def __init__(self, train_model_name:str="klue/bert-base", tokenizer_path:str="./model/tokenizer"):
-        self.train_model_name = train_model_name
-        self.tokenizer_path = tokenizer_path
-
-    def is_valid_tokenizer_dir(self, path: str) -> bool:
-        return os.path.isdir(path) and any(os.scandir(path))
-
-    def update_tokenizer(self):
-        def load_tokens_set(path: str) -> Set[str]:
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    return set([line.strip() for line in f if line.strip()])
-            except FileNotFoundError:
-                return set()
-            
-        def get_unique_token(path: str, existing_tokens_list: Optional[List[str]]) -> List[str]:
-            more_tokens_set = load_tokens_set(path)
-            existing_tokens_set = set(existing_tokens_list or [])
-            return list(more_tokens_set - existing_tokens_set)
-        
-        tokenizer = AutoTokenizer.from_pretrained(
-            self.tokenizer_path if self.is_valid_tokenizer_dir(self.tokenizer_path) else self.train_model_name
-        )
-
-        unique_special_tokens = get_unique_token('./tokens/special_tokens.txt', tokenizer.additional_special_tokens)
-        unique_common_tokens = get_unique_token('./tokens/common_tokens.txt', tokenizer.get_vocab().keys())
-
-        if unique_special_tokens:
-            tokenizer.add_special_tokens({'additional_special_tokens': unique_special_tokens})
-        if unique_common_tokens:
-            tokenizer.add_tokens(unique_common_tokens)
-        self._tokenizer = tokenizer
-
-    def save_tokenizer(self):
-        self._tokenizer.save_pretrained(self.tokenizer_path)
 
 class TrainModel():
     def __init__(self, data: pd.DataFrame, model_type: str, save_path:str, train_model_name:str = "klue/bert-base", batch_size:int = 16, epoches: int = 10):
@@ -295,11 +259,14 @@ def train_and_eval(model:TrainModel, epoch:int) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('-t', '--train', action='store_true', help='훈련을 진행합니다.')
+    parser.add_argument('-tm', '--train-model', action='store_true', help='모델 훈련을 진행합니다.')
+    parser.add_argument('-tt', '--train-tokenizer', action='store_true', help='토크나이저 훈련을 진행합니다.')
+    parser.add_argument('-ta', '--train-all', action='store_true', help='모든 훈련을 진행합니다.')
     parser.add_argument('-u', '--upload', action='store_true', help='생성한 모델들을 업로드합니다.')
     parser.add_argument('-s', '--save', action='store_true', help='모델을 불러와 그대로 저장합니다. fp16 잘 되는지 테스트용')
     parser.add_argument('-r', '--reset', action='store_true', help='모델을 삭제합니다. 처음부터 만들기 위한 목적')
-
+    
+    
     args = parser.parse_args()
     if not any(vars(args).values()):
         parser.print_help()
@@ -327,11 +294,12 @@ if __name__ == "__main__":
         import shutil
         shutil.rmtree('./model')
 
-    if args.train:
-        tokenizer = TokenizeManager()
+    if args.train_tokenizer or args.train_all:
+        tokenizer = TokenizeManager(root_project_path=".", is_clear=args.reset)
         tokenizer.update_tokenizer()
         tokenizer.save_tokenizer()
 
+    if args.train_model or args.train_all:
         helper.download(['dataset.csv'])
         df = pd.read_csv(os.path.join(save_root_path, "dataset.csv"), usecols=["nickname", "comment", "nickname_class", "comment_class"])
         # csv로 내보낼때 변경한 값을 처리

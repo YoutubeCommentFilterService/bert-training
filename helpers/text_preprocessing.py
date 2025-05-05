@@ -117,8 +117,8 @@ def normalize_tlettak_font(text: str,
     space_pattern = re.compile(space_pattern) if isinstance(space_pattern, str) else space_pattern
     search_pattern = re.compile(search_pattern) if isinstance(search_pattern, str) else search_pattern
 
-    text = re.sub(r'([\(\[\{])', r'\1 ', text)  # 여는 괄호
-    text = re.sub(r'([\)\]\}])', r' \1', text)  # 닫는 괄호
+    text = re.sub(r'([\(\[\{])', r' \1 ', text)  # 여는 괄호
+    text = re.sub(r'([\)\]\}])', r' \1 ', text)  # 닫는 괄호
 
     result = []
     substr = []
@@ -382,7 +382,7 @@ def _replace_misc_patterns(df: pd.DataFrame):
         df['comment']
             .str.replace(r'\[+', '[', regex=True)
             .str.replace(r'\]+', ']', regex=True)
-            .str.replace(r'[^\w가-힣ㄱ-ㅎㅏ-ㅣ!?%&\^()\[\]{}\-+=~,./<>;:\'"\s]', '', regex=True)
+            .str.replace(r'[^\w가-힣ㄱ-ㅎㅏ-ㅣ!?%&\^\(\)\[\]{}\-+=~,./<>;:\'"\s]', '', regex=True)
             .str.replace(r'(?<!\d)([a-zA-Z가-힣ㄱ-ㅎㅏ-ㅣ!?%\^\(\)\[\]\{\}\-_+=~,.\/<>;:\'"\s])\1{3,}', r'\1\1', regex=True)
             .str.strip()
             .fillna('[EMPTY]')
@@ -425,7 +425,7 @@ def _clean_nickname(df: pd.DataFrame):
             r'\1',
             text
         )
-    
+
     def _remove_underscore_format(text: str):
         m = re.match(r'^(?!user).*(_[a-zA-Z0-9]{2,7})$', text)
         return text[:m.span(1)[0]] if m else text
@@ -534,6 +534,9 @@ def _preprocess_incorrect_char(df: pd.DataFrame):
     return df
 
 def run_text_preprocessing(df: pd.DataFrame, emoji_path: str):
+    def trace_error(df: pd.DataFrame, cnt: int):
+        print(cnt)
+        return df
     df = _preprocess_incorrect_char(df)
     df = _normalize_spam_text(df)
     df = (

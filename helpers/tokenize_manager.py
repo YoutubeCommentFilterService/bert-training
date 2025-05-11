@@ -10,7 +10,6 @@ class TokenizeManager():
         self.root_project_path = root_project_path
         self.is_clear = is_clear
         self.train_model_name = self.get_tokenizer_type()
-        print(self.train_model_name)
 
     def is_valid_tokenizer_dir(self, path: str) -> bool:
         return os.path.isdir(path) and any(os.scandir(path))
@@ -31,7 +30,7 @@ class TokenizeManager():
             return self.train_model_name
         return self.tokenizer_path
 
-    def update_tokenizer(self):
+    def update(self):
         def get_unique_token(path: str, existing_tokens_list: Optional[List[str]]) -> List[str]:
             def load_tokens_list(path: str) -> List[str]:
                 try:
@@ -58,5 +57,5 @@ class TokenizeManager():
             tokenizer.add_tokens(unique_common_tokens)
         self._tokenizer = tokenizer
 
-    def save_tokenizer(self):
+    def save(self):
         self._tokenizer.save_pretrained(self.tokenizer_path)

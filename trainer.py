@@ -16,7 +16,7 @@ from sklearn.metrics import classification_report
 
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_scheduler, AutoConfig
 
-from helpers.text_preprocessing import run_text_preprocessing
+from helpers.text_preprocessing import TextNormalizator
 
 class CustomDataset(torch.utils.data.Dataset):
     def __init__(self, encodings, labels, label_index_map):
@@ -230,7 +230,7 @@ class TrainModel():
 
         fp16 = self._model.half()
         fp16.save_pretrained(self.model_path+"_fp16")
-        print(f"{self.model_type} model and tokenizer saved")
+        print(f"{self.model_type} model saved")
 
     def predict(self, text) -> str:
         tokens = self._tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=self.max_token_length)
@@ -296,16 +296,18 @@ if __name__ == "__main__":
 
     if args.train_tokenizer or args.train_all:
         tokenizer = TokenizeManager(root_project_path=".", is_clear=args.reset)
-        tokenizer.update_tokenizer()
-        tokenizer.save_tokenizer()
+        tokenizer.update()
+        tokenizer.save()
+        print(f"tokenizer saved")
 
     if args.train_model or args.train_all:
         helper.download(['dataset.csv'])
+        text_normalizator = TextNormalizator(normalize_file_path='./tokens/text_preprocessing.json', emoji_path='./tokens/emojis.txt', tokenizer_path='./model/tokenizer')
         df = pd.read_csv(os.path.join(save_root_path, "dataset.csv"), usecols=["nickname", "comment", "nickname_class", "comment_class"])
         # csv로 내보낼때 변경한 값을 처리
         df['comment'] = df['comment'].str.replace(r'\\', ',', regex=True)   # spread sheet에서 export할 때 , 를 \ 로 바꿔놨음. 안그러면 csv가 지랄하더라...
 
-        df = run_text_preprocessing(df, './tokens/emojis.txt')
+        text_normalizator.run_text_preprocessing(df)
 
         batch_size = 16
 

@@ -230,6 +230,28 @@ class TrainModel():
 
         fp16 = self._model.half()
         fp16.save_pretrained(self.model_path+"_fp16")
+
+        # dummy_input_ids = torch.randint(low=1, high=self._tokenizer.vocab_size, size=(self.batch_size, self.max_token_length), dtype=torch.long)
+        # dummy_attention_mask = torch.ones((self.batch_size, self.max_token_length), dtype=torch.long)
+        # dummy_token_type_ids = torch.zeros((self.batch_size, self.max_token_length), dtype=torch.long)
+
+        # if not os.path.exists(f'model/{self.model_type}_onnx'):
+        #     os.makedirs(f'model/{self.model_type}_onnx', exist_ok=True)
+        # torch.onnx.export(
+        #     self._model,
+        #     (dummy_input_ids, dummy_token_type_ids, dummy_attention_mask),
+        #     f'model/{self.model_type}_onnx/model.onnx',
+        #     input_names=['input_ids', 'token_type_ids', 'attention_mask'],
+        #     output_names=['output'],
+        #     dynamic_axes={
+        #         'input_ids': {0: 'batch_size', 1: 'max_token_length'},
+        #         'token_type_ids': {0: 'batch_size', 1: 'max_token_length'},
+        #         'attention_mask': {0: 'batch_size', 1: 'max_token_length'},
+        #         'output': {0: 'batch_size'}
+        #     },
+        #     opset_version=17
+        # )
+
         print(f"{self.model_type} model saved")
 
     def predict(self, text) -> str:
@@ -323,9 +345,6 @@ if __name__ == "__main__":
         comment_model.save()
         del nickname_model, comment_model
 
-    if args.upload:
-        helper.upload(from_local=True)
-
     if args.save:
         df = pd.read_csv(os.path.join(save_root_path, "dataset.csv"), usecols=["nickname", "comment", "nickname_class", "comment_class"])
         df['comment'] = df['comment'].str.replace(r'\\', ',', regex=True)
@@ -339,3 +358,6 @@ if __name__ == "__main__":
         comment_model = TrainModel(df, "comment", save_path=save_root_path, epoches=5, batch_size=batch_size)
         comment_model.save()
         del comment_model
+
+    if args.upload:
+        helper.upload(from_local=True)

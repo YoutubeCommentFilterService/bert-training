@@ -1,19 +1,29 @@
 from transformers import AutoTokenizer
 import pandas as pd
-from helpers.text_preprocessing import run_text_preprocessing
+from text_preprocessing import TextNormalizator
 import re
+import os
 
-UNKNOWN_TOKEN = '[UNK]'
 
 tokenizer = AutoTokenizer.from_pretrained('../model/tokenizer')
+UNKNOWN_TOKEN = tokenizer.unk_token
 
 datas = pd.read_csv('../model/dataset.csv')
+datas['comment'].str.replace('\\', ',', regex=False)
+# datas = pd.read_csv('./testset.csv')
 
-run_text_preprocessing(datas, '../tokens/emojis.txt')
+normalizator = TextNormalizator()
+normalizator.run_text_preprocessing(datas)
 
-with open('./unk_datas', 'w', encoding='utf-8') as f:
+if not os.path.exists('./unk_data'):
+    os.makedirs('./unk_data')
+
+
+with open('./unk_data/datas', 'w', encoding='utf-8') as f:
     f.write('')
-with open('./unk_datas_char', 'w', encoding='utf-8') as f:
+with open('./unk_data/unk_datas', 'w', encoding='utf-8') as f:
+    f.write('')
+with open('./unk_data/unk_datas_char', 'w', encoding='utf-8') as f:
     f.write('')
 
 for data in datas['comment']:
@@ -32,8 +42,10 @@ for data in datas['comment']:
         processing_text = processing_text.replace(current_word, '', 1)
         processing_text = re.sub(r'\s+', ' ', processing_text).strip()
 
-        with open('./unk_datas', 'a+', encoding='utf-8') as f:
+        with open('./unk_data/unk_datas', 'a+', encoding='utf-8') as f:
             f.write(f'{len(data)} - {data}\n\t{len(tokens)} - {tokens}\n')
 
-        with open('./unk_datas_char', 'a+', encoding='utf-8') as f:
+        with open('./unk_data/unk_datas_char', 'a+', encoding='utf-8') as f:
             f.write(f'{data}\n\t{processing_text}\n')
+    with open('./unk_data/datas', 'a+', encoding='utf-8') as f:
+        f.write(f'{data}\n\t{tokens}\n')

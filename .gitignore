@@ -1,0 +1,8 @@
+model
+env
+
+.*
+!.gitignore
+**/__pycache__
+
+**/unk_data/*

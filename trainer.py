@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 import argparse
 from collections import Counter
 from helpers.tokenize_manager import TokenizeManager
+import shutil
+import re
 
 import pandas as pd
 
@@ -279,17 +281,34 @@ def train_and_eval(model:TrainModel, epoch:int) -> None:
         model.evaluate()
     torch.cuda.empty_cache()
 
+def remove_model(model_type: str):
+    if not os.path.exists('model'):
+        return
+    for name in os.listdir('model'):
+        full_path = os.path.join('model', name)
+        if os.path.isdir(full_path) and re.match(rf'^{model_type}', name):
+            shutil.rmtree(full_path)
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-tm', '--train-model', action='store_true', help='모델 훈련을 진행합니다.')
-    parser.add_argument('-tt', '--train-tokenizer', action='store_true', help='토크나이저 훈련을 진행합니다.')
-    parser.add_argument('-ta', '--train-all', action='store_true', help='모든 훈련을 진행합니다.')
-    parser.add_argument('-u', '--upload', action='store_true', help='생성한 모델들을 업로드합니다.')
-    parser.add_argument('-s', '--save', action='store_true', help='모델을 불러와 그대로 저장합니다. fp16 잘 되는지 테스트용')
-    parser.add_argument('-r', '--reset', action='store_true', help='모델을 삭제합니다. 처음부터 만들기 위한 목적')
-    
+    parser = argparse.ArgumentParser(description="YouTube Comment Classification Trainer")
+
+    train_group = parser.add_argument_group('Training Options')
+    train_group.add_argument('-ta', '--train-all', action='store_true', help='모든 훈련을 진행합니다.')
+    train_group.add_argument('-tt', '--train-tokenizer', action='store_true', help='토크나이저 훈련을 진행합니다.')
+    train_group.add_argument('-tc', '--train-comment', action='store_true', help='댓글 모델 훈련을 진행합니다.')
+    train_group.add_argument('-tn', '--train-nickname', action='store_true', help='닉네임 모델 훈련을 진행합니다.')
+
+    utility_group = parser.add_argument_group('Utility Options')
+    utility_group.add_argument('-u', '--upload', action='store_true', help='생성한 모델들을 업로드합니다.')
+    utility_group.add_argument('-s', '--save', action='store_true', help='모델을 불러와 그대로 저장합니다.')
+    utility_group.add_argument('-ra', '--reset-all', action='store_true', help='모든 모델을 삭제합니다.')
+    utility_group.add_argument('-rt', '--reset-tokenizer', action='store_true', help='토크나이저를 삭제합니다.')
+    utility_group.add_argument('-rc', '--reset-comment', action='store_true', help='댓글 모델을 삭제합니다.')
+    utility_group.add_argument('-rn', '--reset-nickname', action='store_true', help='닉네임 모델을 삭제합니다.')
     
     args = parser.parse_args()
+    print(vars(args).values())
+
     if not any(vars(args).values()):
         parser.print_help()
         exit(0)
@@ -305,45 +324,72 @@ if __name__ == "__main__":
 
     helper = S3Helper(project_root_path, 'youtube-comment-predict')
 
-    if args.reset or not os.path.exists('./model/nickname_model'):
+    if args.reset_all:
+        args.reset_tokenizer = True
+        args.reset_comment = True
+        args.reset_nickname = True
+
+    if args.reset_tokenizer:
+        remove_model('tokenizer')
+
+    if args.reset_nickname:
+        remove_model('nickname')
+
+    if args.reset_comment:
+        remove_model('comment')
+
+    if not os.path.exists('./model/nickname_model'):
         main_train_loops = 3
         train_epoches = 3
     else:
         main_train_loops = 1
         train_epoches = 5
 
-    if args.reset:
-        import shutil
-        shutil.rmtree('./model')
+    if args.train_all:
+        args.train_comment = True
+        args.train_nickname = True
+        args.train_tokenizer = True
 
-    if args.train_tokenizer or args.train_all:
-        tokenizer = TokenizeManager(root_project_path=".", is_clear=args.reset)
+    if args.train_tokenizer:
+        # tokenizer는 토큰을 업데이트해서 저장하는 용도이기때문에 데이터셋이 필요 없다.
+        tokenizer = TokenizeManager(root_project_path=".", is_clear=args.reset_all)
         tokenizer.update()
         tokenizer.save()
-        print(f"tokenizer saved")
 
-    if args.train_model or args.train_all:
-        helper.download(['dataset.csv'])
-        text_normalizator = TextNormalizator(normalize_file_path='./tokens/text_preprocessing.json', emoji_path='./tokens/emojis.txt', tokenizer_path='./model/tokenizer')
-        df = pd.read_csv(os.path.join(save_root_path, "dataset.csv"), usecols=["nickname", "comment", "nickname_class", "comment_class"])
-        # csv로 내보낼때 변경한 값을 처리
-        df['comment'] = df['comment'].str.replace(r'\\', ',', regex=True)   # spread sheet에서 export할 때 , 를 \ 로 바꿔놨음. 안그러면 csv가 지랄하더라...
-
-        text_normalizator.run_text_preprocessing(df)
-
+    if args.train_comment or args.train_nickname:
         batch_size = 16
 
-        nickname_model = TrainModel(df, "nickname", save_path=save_root_path, epoches=train_epoches, batch_size=batch_size)
+        helper.download(['dataset.csv'])
+
+        text_normalizator = TextNormalizator(normalize_file_path='./tokens/text_preprocessing.json', emoji_path='./tokens/emojis.txt', tokenizer_path='./model/tokenizer')
+        df = pd.read_csv(os.path.join(save_root_path, "dataset.csv"), usecols=["nickname", "comment", "nickname_class", "comment_class"])
+
+        # csv로 내보낼때 변경한 값을 처리
+        df['comment'] = df['comment'].str.replace(r'\\', ',', regex=True)   # spread sheet에서 export할 때 , 를 \ 로 바꿔놨음. 안그러면 csv가 지랄하더라...
+        text_normalizator.run_text_preprocessing(df)
+
+    if args.train_comment:
         comment_model = TrainModel(df, "comment", save_path=save_root_path, epoches=train_epoches, batch_size=batch_size)
 
         for i in range(main_train_loops):
             print(f'train epoch: {i + 1}')
-            train_and_eval(nickname_model, train_epoches)
             train_and_eval(comment_model, train_epoches)
-
-        nickname_model.save()
+        
         comment_model.save()
-        del nickname_model, comment_model
+        del comment_model
+
+    if args.train_nickname:
+        nickname_model = TrainModel(df, "nickname", save_path=save_root_path, epoches=train_epoches, batch_size=batch_size)
+
+        for i in range(main_train_loops):
+            print(f'train epoch: {i + 1}')
+            train_and_eval(nickname_model, train_epoches)
+        
+        nickname_model.save()
+        del nickname_model
+
+    if args.upload:
+        helper.upload(from_local=True)
 
     if args.save:
         df = pd.read_csv(os.path.join(save_root_path, "dataset.csv"), usecols=["nickname", "comment", "nickname_class", "comment_class"])
@@ -358,6 +404,3 @@ if __name__ == "__main__":
         comment_model = TrainModel(df, "comment", save_path=save_root_path, epoches=5, batch_size=batch_size)
         comment_model.save()
         del comment_model
-
-    if args.upload:
-        helper.upload(from_local=True)

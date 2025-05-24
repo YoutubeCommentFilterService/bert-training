@@ -469,7 +469,6 @@ class TextNormalizator:
 
         df['comment'] = (
             df['comment']
-                .str.replace(r'([가계그기깨꼬꾸끼나내뇌누니다대도되두드뜨라러루르리마매모무미버보부비쁘사서수쉬쑤쓰아여오외우으이자적주지찌차추치크키타터푸하허히])셧', r'\1셨')
                 .apply(lambda x: re.sub(uncommon_jaum_pattern, lambda m: process_uncommon_jaum(m), x))
                 .apply(lambda x: re.sub(iya_pattern, lambda m: process_iya(m), x))
                 .apply(lambda x: re.sub(wawu_pattern, lambda m: process_wawu(m), x))

@@ -307,7 +307,6 @@ if __name__ == "__main__":
     utility_group.add_argument('-rn', '--reset-nickname', action='store_true', help='닉네임 모델을 삭제합니다.')
     
     args = parser.parse_args()
-    print(vars(args).values())
 
     if not any(vars(args).values()):
         parser.print_help()
@@ -329,21 +328,19 @@ if __name__ == "__main__":
         args.reset_comment = True
         args.reset_nickname = True
 
+    nickname_train_loops, comment_train_loops = 1, 1
+    nickname_train_epoches, comment_train_epoches = 5, 5
+
     if args.reset_tokenizer:
         remove_model('tokenizer')
 
-    if args.reset_nickname:
+    if args.reset_nickname or not os.path.exists('model/nickname_model'):
         remove_model('nickname')
+        nickname_train_loops, nickname_train_epoches = 3, 3
 
-    if args.reset_comment:
+    if args.reset_comment or not os.path.exists('model/comment_model'):
         remove_model('comment')
-
-    if not os.path.exists('./model/nickname_model'):
-        main_train_loops = 3
-        train_epoches = 3
-    else:
-        main_train_loops = 1
-        train_epoches = 5
+        comment_train_loops, comment_train_epoches = 3, 3
 
     if args.train_all:
         args.train_comment = True
@@ -368,25 +365,25 @@ if __name__ == "__main__":
         df['comment'] = df['comment'].str.replace(r'\\', ',', regex=True)   # spread sheet에서 export할 때 , 를 \ 로 바꿔놨음. 안그러면 csv가 지랄하더라...
         text_normalizator.run_text_preprocessing(df)
 
-    if args.train_comment:
-        comment_model = TrainModel(df, "comment", save_path=save_root_path, epoches=train_epoches, batch_size=batch_size)
-
-        for i in range(main_train_loops):
-            print(f'train epoch: {i + 1}')
-            train_and_eval(comment_model, train_epoches)
-        
-        comment_model.save()
-        del comment_model
-
     if args.train_nickname:
-        nickname_model = TrainModel(df, "nickname", save_path=save_root_path, epoches=train_epoches, batch_size=batch_size)
+        nickname_model = TrainModel(df, "nickname", save_path=save_root_path, epoches=nickname_train_epoches, batch_size=batch_size)
 
-        for i in range(main_train_loops):
+        for i in range(nickname_train_loops):
             print(f'train epoch: {i + 1}')
-            train_and_eval(nickname_model, train_epoches)
+            train_and_eval(nickname_model, nickname_train_epoches)
         
         nickname_model.save()
         del nickname_model
+
+    if args.train_comment:
+        comment_model = TrainModel(df, "comment", save_path=save_root_path, epoches=comment_train_epoches, batch_size=batch_size)
+
+        for i in range(comment_train_loops):
+            print(f'train epoch: {i + 1}')
+            train_and_eval(comment_model, comment_train_epoches)
+        
+        comment_model.save()
+        del comment_model
 
     if args.upload:
         helper.upload(from_local=True)

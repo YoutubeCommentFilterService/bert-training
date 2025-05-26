@@ -357,6 +357,7 @@ class TextNormalizator:
         def process_sort(match: re.Match):
             text = ''.join(sorted(match.group(0), key=lambda c: punct_order.index(c)))
 
+            text = re.sub(r'.+,+', '..', text)
             text = re.sub(r',{2,}', '..', text)
             text = re.sub(r'\.{2,}', '..', text)
             text = re.sub(r'\?{2,}', '?', text)
@@ -370,8 +371,8 @@ class TextNormalizator:
         df['comment'] = df['comment'].apply(lambda x: re.sub(punct_pattern, lambda p: process_sort(p), x))
         df['comment'] = (
             df['comment']
-                .replace(r'"{2,}', '\'', regex=False)
-                .replace(r'\'{2,}', '\'', regex=False)
+                .replace(r'"{2,}', "'", regex=False)
+                .replace(r'\'{2,}', "'", regex=False)
         )
         return df
     

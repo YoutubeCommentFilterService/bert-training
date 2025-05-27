@@ -61,5 +61,22 @@ else:
     with open(example_list_file, 'r', encoding='utf-8') as f:
         datas = [ line.strip() for line in f.readlines() ]
 
-pattern = r'믜'
+pattern = r'앋'
 print(list(filter(lambda x: re.search(pattern, x), datas)))
+trail_patterns = set()
+base_patterns = set()
+one_patterns = set()
+trail_pattern = re.compile(pattern + r'([가-힣])')
+base_pattern = re.compile(r'([가-힣])' + pattern)
+one_pattern = re.compile(r'\b' + pattern + r'\b')
+for data in datas:
+    for token in trail_pattern.findall(data):
+        trail_patterns.add(token)
+    for token in base_pattern.findall(data):
+        base_patterns.add(token)
+    for token in one_pattern.findall(data):
+        one_patterns.add(token)
+
+print(trail_patterns)
+print(base_patterns)
+print(one_patterns)

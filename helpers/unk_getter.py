@@ -9,7 +9,8 @@ tokenizer = AutoTokenizer.from_pretrained('../model/tokenizer')
 UNKNOWN_TOKEN = tokenizer.unk_token
 
 datas = pd.read_csv('../model/dataset.csv')
-datas['comment'].str.replace('\\', ',', regex=False)
+datas['comment'] = datas['comment'].str.replace('\\', ',', regex=False)
+origin_datas = datas.copy(True)
 # datas = pd.read_csv('./testset.csv')
 
 normalizator = TextNormalizator()
@@ -21,13 +22,12 @@ if not os.path.exists('./unk_data'):
 
 with open('./unk_data/datas', 'w', encoding='utf-8') as f:
     f.write('')
-with open('./unk_data/unk_datas', 'w', encoding='utf-8') as f:
-    f.write('')
 with open('./unk_data/unk_datas_char', 'w', encoding='utf-8') as f:
     f.write('')
 
-for data in datas['comment']:
+for idx, data in enumerate(datas['comment']):
     tokens = tokenizer.tokenize(data)
+    write_text = data if origin_datas["comment"].iloc[idx] == data else f'{origin_datas["comment"].iloc[idx]}\n{data}'
     if UNKNOWN_TOKEN in tokens:
         current_word = ''
         unk_tokens = []
@@ -42,10 +42,8 @@ for data in datas['comment']:
         processing_text = processing_text.replace(current_word, '', 1)
         processing_text = re.sub(r'\s+', ' ', processing_text).strip()
 
-        with open('./unk_data/unk_datas', 'a+', encoding='utf-8') as f:
-            f.write(f'{len(data)} - {data}\n\t{len(tokens)} - {tokens}\n')
-
         with open('./unk_data/unk_datas_char', 'a+', encoding='utf-8') as f:
-            f.write(f'{data}\n\t{processing_text}\n')
+            f.write(f'{write_text}\n\t{processing_text}\n\n')
+
     with open('./unk_data/datas', 'a+', encoding='utf-8') as f:
-        f.write(f'{data}\n\t{tokens}\n')
+        f.write(f'{write_text}\n\t{tokens}\n')

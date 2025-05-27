@@ -9,6 +9,7 @@ import os
 
 class IncorrectType(TypedDict):
     char: Dict[str, str]
+    word: Dict[str, str]
     sentence: List[Tuple[str, str, bool]]
 
 class StructedType(TypedDict):
@@ -113,11 +114,20 @@ class TextNormalizator:
             self._remove_isolated_english(df)
                 .pipe(self._set_default_nickname)
         )
+        
+        # 마지막으로 한번 더 정리
+        df = self._normalize_incorrect_grammar(df)
         return df
 
     def reload(self):
         with open(self.path['normalize'], 'r', encoding='utf-8') as f:
             self.normalize_type: TextPreprocessingType = json.load(f)
+
+        char_patterns = self.normalize_type['incorrect']['char']
+        word_patterns = self.normalize_type['incorrect']['word']
+
+        self.char_compiled = re.compile(r'(' + '|'.join(re.escape(k) for k in char_patterns.keys()) + r')')
+        self.word_compiled = re.compile(r'(' + '|'.join(re.escape(k) for k in word_patterns.keys()) + r')')
 
         for key, val in self.normalize_type['single']['en'].items():
             self.normalize_type['single']['en'][key] = re.compile(val)
@@ -168,6 +178,8 @@ class TextNormalizator:
         normalized = ''.join(unicode_single_hangul_dict.get(ch, ch) for ch in normalized)
         return normalized
     
+    ## TODO: space_pattern, search_pattern 손 볼 필요가 있음
+    ##    전처리 결과 보니까 다 붇혀버리는데...?
     def _normalize_tlettak_font(
             self,
             text: str, 
@@ -207,9 +219,9 @@ class TextNormalizator:
     
     def _normalize_unicode(self, df: pd.DataFrame):
         df['comment'] = (
-            df['comment'] # \u2640\u2642\u2695\u2696\u2708\u2764
-                .str.replace(r'[\u0020\u200b\u2002\u2003\u2007\u2008\u200c\u200d]+', ' ', regex=True)
-                .str.replace(r'[\U0001F3FB-\U0001F3FF\uFE0F]', '', regex=True)
+            df['comment'] # \u2640\u2642\u2695\u2696\u2708\u2764 - ♀, ♂, ⚕, ⚖, ✈, ❤ 기호
+                .str.replace(r'[\u2002\u2003\u2007\u2008]+', ' ', regex=True)
+                .str.replace(r'[\U0001F3FB-\U0001F3FF\uFE0F\u0674\u1160\u200B\u200C\u200D\uFEFF\u2060\u1160]+', '', regex=True)
                 .str.replace(r'\*+', '', regex=True)
                 .str.replace('9글', '구글')
         )
@@ -326,14 +338,29 @@ class TextNormalizator:
     def _normalize_incorrect_grammar(self, df: pd.DataFrame):
         sentence_patterns = self.normalize_type['incorrect']['sentence']
         char_patterns = self.normalize_type['incorrect']['char']
-        pattern = r'(' + '|'.join(map(re.escape, char_patterns.keys())) + r')'
-        for column in df.columns:
-            df[column] = df[column].str.replace(pattern, lambda match: char_patterns.get(match.group(0), match.group(0)), regex=True)
+        word_patterns = self.normalize_type['incorrect']['word']
 
         for column in df.columns:
-            for pattern, to_sub, regex_flag in sentence_patterns:
-                df[column] = df[column].str.replace(pattern, to_sub, regex=regex_flag)
+            df[column] = (
+                df[column]
+                    .str.replace(self.word_compiled, lambda m: word_patterns[m.group(1)], regex=True)
+                    .str.replace(self.char_compiled, lambda m: char_patterns[m.group(1)], regex=True)
+            )
 
+        error_flag = None
+        for column in df.columns:
+            try:
+                for pattern, to_sub, regex_flag in sentence_patterns:
+                    try:
+                        df[column] = df[column].str.replace(pattern, to_sub, regex=regex_flag)
+                    except Exception as e:
+                        error_flag = True
+                        print(pattern, to_sub)
+            except Exception as e:
+                error_flag = True
+                print(pattern, to_sub)
+        if error_flag:
+            exit(0)
         return df
     
     def _set_default_nickname(self, df: pd.DataFrame):
@@ -397,7 +424,10 @@ class TextNormalizator:
             return ''.join(match.groups())
 
         def process_sort(match: re.Match):
-            return ''.join(sorted(match.group(0)))
+            sort_order = chosung_order + jungsung_order
+            text = ''.join(sorted(match.group(0), key=lambda x: sort_order.index(x)))
+            text = re.sub(r'ㅋ[ㄲㅍ]+', 'ㅋ', text)
+            return text
         
         chosung_order = 'ㄱㅋㄲㅍㅎ'
         jungsung_order = 'ㅠㅜ'
@@ -471,7 +501,7 @@ class TextNormalizator:
         df['comment'] = (
             df['comment']
                 .apply(lambda x: re.sub(uncommon_jaum_pattern, lambda m: process_uncommon_jaum(m), x))
-                .apply(lambda x: re.sub(iya_pattern, lambda m: process_iya(m), x))
+                # .apply(lambda x: re.sub(iya_pattern, lambda m: process_iya(m), x))
                 .apply(lambda x: re.sub(wawu_pattern, lambda m: process_wawu(m), x))
         )
 

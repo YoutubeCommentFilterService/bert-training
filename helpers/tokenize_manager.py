@@ -50,6 +50,7 @@ class TokenizeManager():
         unique_common_tokens.extend(get_unique_token(f'{self.root_project_path}/tokens/common_punct_tokens.txt', tokenizer.get_vocab().keys()))
         unique_common_tokens.extend(get_unique_token(f'{self.root_project_path}/tokens/common_shortcut_tokens.txt', tokenizer.get_vocab().keys()))
         unique_common_tokens.extend(get_unique_token(f'{self.root_project_path}/tokens/common_word_tokens.txt', tokenizer.get_vocab().keys()))
+        unique_common_tokens.extend(get_unique_token(f'{self.root_project_path}/tokens/common_en_tokens.txt', tokenizer.get_vocab().keys()))
 
         if unique_special_tokens:
             tokenizer.add_special_tokens({'additional_special_tokens': unique_special_tokens})

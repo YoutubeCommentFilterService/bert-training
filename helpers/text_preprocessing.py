@@ -10,7 +10,7 @@ import os
 class IncorrectType(TypedDict):
     char: Dict[str, str]
     word: Dict[str, str]
-    sentence: List[Tuple[str, str, bool]]
+    sentence: List[Tuple[str, str]]
 
 class StructedType(TypedDict):
     base: Dict[str, Union[List[str], List[Pattern]]]
@@ -107,7 +107,7 @@ class TextNormalizator:
                 .pipe(self._replace_structed_patterns)
                 .pipe(self._cleanup_formatting)
                 .pipe(self._clean_duplicated_token)
-                .pipe(self._process_dan_mo_ja)
+                # .pipe(self._process_dan_mo_ja)
                 .pipe(self._sort_hangul)
         )
         df = (
@@ -350,9 +350,9 @@ class TextNormalizator:
         error_flag = None
         for column in df.columns:
             try:
-                for pattern, to_sub, regex_flag in sentence_patterns:
+                for pattern, to_sub in sentence_patterns:
                     try:
-                        df[column] = df[column].str.replace(pattern, to_sub, regex=regex_flag)
+                        df[column] = df[column].str.replace(pattern, to_sub, regex=True)
                     except Exception as e:
                         error_flag = True
                         print(pattern, to_sub)

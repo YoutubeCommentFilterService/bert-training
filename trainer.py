@@ -312,6 +312,13 @@ if __name__ == "__main__":
         parser.print_help()
         exit(0)
 
+    dummy_df = pd.DataFrame({
+        "nickname": [],
+        "nickname_class": [],
+        "comment": [],
+        "comment_class": []
+    })
+
     save_root_path = Path(os.path.join(os.path.expanduser('~'), 'youtube-comment-colab', 'model'))
     if not save_root_path.exists():
         save_root_path.mkdir()
@@ -352,6 +359,9 @@ if __name__ == "__main__":
         tokenizer = TokenizeManager(root_project_path=".", is_clear=args.reset_all)
         tokenizer.update()
         tokenizer.save()
+
+        TrainModel(dummy_df, 'nickname', save_path=save_root_path).save()
+        TrainModel(dummy_df, 'comment', save_path=save_root_path).save()
 
     if args.train_comment or args.train_nickname:
         batch_size = 16

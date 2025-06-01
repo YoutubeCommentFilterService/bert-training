@@ -9,7 +9,11 @@ tokenizer = AutoTokenizer.from_pretrained('../model/tokenizer')
 UNKNOWN_TOKEN = tokenizer.unk_token
 
 datas = pd.read_csv('../model/dataset.csv')
-datas['comment'] = datas['comment'].str.replace('\\', ',', regex=False)
+datas['comment'] = (
+    datas['comment']
+        .str.replace('\\', ',', regex=False)
+        .str.strip()
+)
 origin_datas = datas.copy(True)
 # datas = pd.read_csv('./testset.csv')
 
@@ -24,6 +28,8 @@ with open('./unk_data/datas', 'w', encoding='utf-8') as f:
     f.write('')
 with open('./unk_data/unk_datas_char', 'w', encoding='utf-8') as f:
     f.write('')
+
+datas['comment'] = datas['comment'].str.strip()
 
 for idx, data in enumerate(datas['comment']):
     tokens = tokenizer.tokenize(data)

@@ -63,3 +63,4 @@ com
 cam
 fps
 pvp
+recycle

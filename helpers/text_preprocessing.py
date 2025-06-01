@@ -6,6 +6,7 @@ import hangul_jamo
 import json
 from transformers import AutoTokenizer
 import os
+from functools import lru_cache
 
 class IncorrectType(TypedDict):
     char: Dict[str, str]
@@ -31,7 +32,8 @@ class TextPreprocessingType(TypedDict):
     single: SingleCharType
     punct: Dict[str, Pattern]
     emoji: EmojiType
-    special_token: List[List[str]]
+    special_token: List[Tuple[str, str]]
+    preprocessing: List[Tuple[str, str]]
 
 class PathType(TypedDict):
     normalized: str
@@ -93,9 +95,10 @@ class TextNormalizator:
             print(cnt)
             return df
         
+        df = self._pre_processing_tokens(df)
+        
         # 일단 전처리
         df = self._normalize_unicode(df)
-        df = self._clean_nickname(df)
 
         # 스팸 형식 제거
         df = self._normalize_incorrect_grammar(df)
@@ -104,15 +107,18 @@ class TextNormalizator:
         # 실행
         df = (
             self._sort_punct(df)
+                .pipe(self._process_moum)
+                .pipe(self._process_yeocho_font)
                 .pipe(self._replace_special_tokens)
                 .pipe(self._replace_misc_patterns)
                 .pipe(self._replace_structed_patterns)
                 .pipe(self._cleanup_formatting)
                 .pipe(self._clean_duplicated_token)
-                .pipe(self._sort_hangul)
         )
         df = (
-            self._remove_isolated_english(df)
+            self._clean_nickname(df)
+                .pipe(self._remove_num_end_with)
+                .pipe(self._remove_isolated_english)
                 .pipe(self._set_default_nickname)
         )
         
@@ -157,6 +163,9 @@ class TextNormalizator:
         for super_key, item_dict in self.normalize_type['structed'].items():
             for key, regex_list in item_dict.items():
                 self.normalize_type['structed'][super_key][key] = [ re.compile(regex) for regex in regex_list ]
+
+        for idx, item in enumerate(self.normalize_type['preprocessing']):
+            self.normalize_type['preprocessing'][idx] = [re.compile(item[0]), item[1]]
         
         with open(self.path['text_face_emoji'], 'r', encoding='utf-8') as f:
             self.text_face_emoji = [ line.strip() for line in f.readlines() if line ]
@@ -178,6 +187,11 @@ class TextNormalizator:
             self.path['text_face_emoji'] = path
         elif type =='tokenizer':
             self.path['tokenizer'] = path
+
+    def _pre_processing_tokens(self, df: pd.DataFrame):
+        for item in self.normalize_type['preprocessing']:
+            df['comment'] = df['comment'].str.replace(item[0], item[1], regex=True)
+        return df
 
     def _normalize_unicode_text(self, text: str) -> str:
         unicode_single_hangul_dict = self.normalize_type['single']['ko']
@@ -346,6 +360,55 @@ class TextNormalizator:
 
         return df
     
+    def _process_moum(self, df: pd.DataFrame):
+        def process_shrink(match: re.Match, shrink_jung: str):
+            base, trail = match.groups(1)
+            _, jung, jong = self.decompose_hangul(base)
+            if jong == 0 and self.jung_list[jung] in shrink_jung:
+                return base
+            return base + sorted(trail, reverse=True)[0]
+        
+        def create_base(pattern: str):
+            result = ''
+            for char in pattern:
+                if ord(char) > ord('ㅣ'):
+                    continue
+                result += ''.join(list(map(lambda x: self.compose_hangul(x[0], self.jung_list.index(char)), enumerate(self.cho_list))))
+            return result
+
+        patterns = {
+            'ㅘㅏㅑ': 'ㅏ아',
+            'ㅝㅓㅕ': 'ㅓ어',
+            'ㅙㅞㅐㅒㅔㅖ': 'ㅐㅒㅔㅖ애얘에예',
+            'ㅛ': 'ㅛㅗ요오',
+            'ㅣ': 'ㅣ이',
+            'ㅡ': 'ㅡ으'
+        }
+
+        for base, sub in patterns.items():
+            df['comment'] = df['comment'].str.replace(rf"([{create_base(base)}])([{sub}]+)", lambda m: process_shrink(m, base), regex=True)
+
+        pass
+        return df
+    
+    def _process_yeocho_font(self, df: pd.DataFrame):
+        def decompose_text(match: re.Match):
+            base = match.group(1)
+            cho, _, _  = self.decompose_hangul(base)
+            cho = self.cho_list[cho]
+            if cho == 'ㅍ':
+                return 'ㅠㅠ'
+            return cho + 'ㅠㅠ'
+        yu_f_pattern = r"([후휴푸퓨쿠큐])[푸퓨ㅜㅠ]+"
+        yu_s_pattern = r"ㅍ+[쿠큐푸퓨ㅜㅠ]+"
+        
+        df['comment'] = (
+            df['comment']
+                .str.replace(yu_s_pattern, 'ㅠㅠ', regex=True)
+                .str.replace(yu_f_pattern, lambda m: decompose_text(m), regex=True)
+        )
+        return df
+    
     def _normalize_incorrect_grammar(self, df: pd.DataFrame):
         char_patterns = self.normalize_type['incorrect']['char']
         word_patterns = self.normalize_type['incorrect']['word']
@@ -359,36 +422,19 @@ class TextNormalizator:
                     .str.replace(self.char_compiled, lambda m: char_patterns[m.group(1)], regex=True)
             )
 
-        error_flag = None
         for column in df.columns:
-            try:
-                for pattern, to_sub in sentence_patterns:
-                    try:
-                        df[column] = df[column].str.replace(pattern, to_sub, regex=True)
-                    except Exception as e:
-                        error_flag = True
-                        print(pattern, to_sub)
-                for pattern, to_sub_eval in sentence_eval_patterns:
-                    try:
-                        df[column] = df[column].str.replace(pattern, to_sub_eval, regex=True)
-                    except Exception as e:
-                        error_flag = True
-                        print(pattern, to_sub)
-            except Exception as e:
-                error_flag = True
-                print(pattern, to_sub)
-        if error_flag:
-            exit(0)
+            for pattern, to_sub in sentence_patterns:
+                df[column] = df[column].str.replace(pattern, to_sub, regex=True)
+            for pattern, to_sub_eval in sentence_eval_patterns:
+                df[column] = df[column].str.replace(pattern, to_sub_eval, regex=True)
         return df
     
     def _set_default_nickname(self, df: pd.DataFrame):
         def _change_nickname(nickname: str):
-            if re.search(r'[가-힣]', nickname):
-                if len(nickname) < 3:
-                    return '[DEFAULT_NICK]'
-            else:
-                if len(nickname) < 5:
-                    return '[DEFAULT_NICK]'
+            if re.search(r'[가-힣]', nickname) and len(nickname) < 3:
+                return '[DEFAULT_NICK]'
+            elif len(nickname) < 5:
+                return '[DEFAULT_NICK]'
             return nickname
 
         df['nickname'] = df['nickname'].apply(lambda x: _change_nickname(x) if isinstance(x, str) else x)
@@ -396,6 +442,10 @@ class TextNormalizator:
     
     def _remove_isolated_english(self, df: pd.DataFrame):
         df['nickname'] = df['nickname'].str.replace(r'(?<=[가-힣])([a-zA-Z])(?=[가-힣])(?!양)', '', regex=True)
+        return df
+    
+    def _remove_num_end_with(self, df: pd.DataFrame):
+        df['nickname'] = df['nickname'].str.replace(r'\d+$', '', regex=True)
         return df
     
     def _sort_punct(self, df: pd.DataFrame):
@@ -419,110 +469,6 @@ class TextNormalizator:
                 .replace(r'"{2,}', "'", regex=False)
                 .replace(r'\'{2,}', "'", regex=False)
         )
-        return df
-    
-    def _sort_hangul(self, df: pd.DataFrame):
-        def process_jongsung(match: re.Match):
-            base, trail = match.groups()
-            cho, jung, jong = self.decompose_hangul(base)
-            # 종성은 None이 될 수도 있다
-            if self.jong_list[jong] != None and self.jong_list[jong] in chosung_order:
-                new_base = self.compose_hangul(cho, jung, 0)
-                new_trail = self.jong_list[jong] + trail
-                return new_base + new_trail
-            return ''.join(match.groups())
-        
-        def process_jungsung(match: re.Match):
-            base, trail = match.groups()
-            cho, jung, _ = self.decompose_hangul(base)
-            if self.jung_list[jung] in jungsung_order:
-                new_base = self.cho_list[cho]
-                new_trail = self.jung_list[jung] + trail
-                return new_base + new_trail
-            return ''.join(match.groups())
-
-        def process_sort(match: re.Match):
-            sort_order = chosung_order + jungsung_order
-            text = ''.join(sorted(match.group(0), key=lambda x: sort_order.index(x)))
-            text = re.sub(r'ㅋ[ㄲㅍ]+', 'ㅋ', text)
-            return text
-        
-        chosung_order = 'ㄱㅋㄲㅍㅎ'
-        jungsung_order = 'ㅠㅜ'
-        jongsung_pattern = r'([가-힣])([' + chosung_order + ']+)'
-        jungsung_pattern = r'([가-힣])([' + jungsung_order + ']+)'
-        sort_pattern = r'[' + chosung_order + 'ㅠㅜ' + r']{2,}'
-
-        df['comment'] = (
-            df['comment']
-                .str.replace(r'[퓨푸][ㅠㅜ]+', 'ㅠㅠ', regex=True)
-                .apply(lambda x: re.sub(jungsung_pattern, lambda m: process_jungsung(m), x))
-                .apply(lambda x: re.sub(jongsung_pattern, lambda m: process_jongsung(m), x))
-                .apply(lambda x: re.sub(sort_pattern, lambda m: process_sort(m), x))
-        )
-        df['comment'] = df['comment'].str.replace(r'(.)\1{2,}', r'\1\1', regex=True)
-        return df
-    
-    def _process_dan_mo_ja(self, df: pd.DataFrame):
-        def process_iya(match: re.Match):
-            trail = ''.join(sorted(match.group(2), key=lambda t: iya_order.find(t)))
-            trail = re.sub(r'(.)\1{2,}', r'\1', trail)
-            trail = re.sub('아ㅏ', '아', trail)
-            trail = re.sub('야ㅑ', '야', trail)
-
-            base_cho, base_jung, base_jong = self.decompose_hangul(match.group(1))
-            if base_jong != 0:
-                return match.group(1) + trail
-            if self.jung_list[base_jung] == 'ㅣ' and re.match(r'[야아ㅑㅏ]', trail):
-                return self.compose_hangul(base_cho, self.jung_list.index('ㅑ'))
-            if self.jung_list[base_jung] in 'ㅏㅑㅣㅡ':
-                return match.group(1)
-            return match.group(1) + trail
-        
-        def process_wawu(match: re.Match):
-            trail = ''.join(sorted(match.group(2), key=lambda t: wawu_order.find(t)))
-            
-            trail = re.sub(r'(.)\1{2,}', r'\1', trail)
-            for order in range(0, len(wawu_order), 2):
-                o = wawu_order[order: order+2]
-                trail = re.sub(o, o[0], trail)
-            
-            cho, jung, jong = self.decompose_hangul(match.group(1))
-            if jong > 0:
-                return match.group(1) + trail
-            if self.jung_list[jung] in 'ㅝㅓ' and re.search(r'[워ㅝ어ㅓ]', match.group(2)):
-                return match.group(1)
-            if self.jung_list[jung] == 'ㅘ' and re.search(r'[아ㅏ]', match.group(2)):
-                return match.group(1)
-            if self.jung_list[jung] == 'ㅞ' and re.search(r'[에ㅔ애ㅐ어ㅓ]', match.group(2)):
-                return match.group(1)
-            return match.group(1) + trail
-
-        def process_uncommon_jaum(match: re.Match):
-            dt = {
-                '7': 'ㄱ',
-                '^': 'ㅅ',
-                '[': 'ㄷ',
-                '77': 'ㄲ',
-                '^^': 'ㅆ',
-                '[[': 'ㄸ',
-            }
-            base = re.sub(r'(.)\1{2,}', r'\1\1', match.group(1))
-            return self.compose_hangul(self.cho_list.index(dt[base]), self.jung_list.index(match.group(2)))
-        
-        iya_order = '이ㅣ아ㅏ야ㅑ'
-        iya_pattern = rf'([가-힣])([{iya_order}]+)'
-        wawu_order = '와ㅘ왜ㅙ외ㅚ워ㅝ웨ㅞ위ㅟ아ㅏ야ㅑ어ㅓ여ㅕ오ㅗ요ㅛ우ㅜ유ㅠ으ㅡ이ㅣ아ㅗ'
-        wawu_pattern = rf'([가-힣])([{wawu_order}]+)'
-        uncommon_jaum_pattern = r'([7\^\[]+)([ㅏ-ㅣ])'
-
-        df['comment'] = (
-            df['comment']
-                .apply(lambda x: re.sub(uncommon_jaum_pattern, lambda m: process_uncommon_jaum(m), x))
-                # .apply(lambda x: re.sub(iya_pattern, lambda m: process_iya(m), x))
-                .apply(lambda x: re.sub(wawu_pattern, lambda m: process_wawu(m), x))
-        )
-
         return df
 
     def decompose_hangul(self, c: str):

@@ -21,8 +21,14 @@ def save_pretty_json(dict_data: dict, filename: str, max_per_line: int = 70):
             f.write('\n')
         f.write('\t\t}')
 
-char = {}
-word = {}
+
+import json
+with open('../tokens/text_preprocessing.json', 'r', encoding='utf-8') as f:
+    obj = json.load(f)
+
+incorrect = obj['incorrect']
+char = incorrect['char']
+word = incorrect['word']
 
 
 save_pretty_json(char, 'test_1.json')

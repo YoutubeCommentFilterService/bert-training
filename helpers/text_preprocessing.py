@@ -422,7 +422,6 @@ class TextNormalizator:
                     .str.replace(self.char_compiled, lambda m: char_patterns[m.group(1)], regex=True)
             )
 
-        for column in df.columns:
             for pattern, to_sub in sentence_patterns:
                 df[column] = df[column].str.replace(pattern, to_sub, regex=True)
             for pattern, to_sub_eval in sentence_eval_patterns:
@@ -431,9 +430,9 @@ class TextNormalizator:
     
     def _set_default_nickname(self, df: pd.DataFrame):
         def _change_nickname(nickname: str):
-            if re.search(r'[가-힣]', nickname) and len(nickname) < 3:
+            if re.search(r'^[a-zA-Z0-9\-_.]+$', nickname):
                 return '[DEFAULT_NICK]'
-            elif len(nickname) < 5:
+            elif re.search(r'[가-힣]', nickname) and len(nickname) < 3:
                 return '[DEFAULT_NICK]'
             return nickname
 

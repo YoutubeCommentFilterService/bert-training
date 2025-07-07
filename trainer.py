@@ -121,24 +121,22 @@ if __name__ == "__main__":
 
     if args.train_nickname:
         nickname_model = TrainModel(df, "nickname", save_path=model_root_path, epoches=nickname_train_epoches, batch_size=batch_size)
+        nickname_model.set_scheduler(nickname_train_loops)
 
         for i in range(nickname_train_loops):
             print(f'train epoch: {i + 1}')
             train_and_eval(nickname_model, i)
-        if (i % 2 == 1):
-            nickname_model.evaluate()
         
         nickname_model.save()
         del nickname_model
 
     if args.train_comment:
         comment_model = TrainModel(df, "comment", save_path=model_root_path, epoches=comment_train_epoches, batch_size=batch_size)
+        comment_model.set_scheduler(comment_train_loops)
 
         for i in range(comment_train_loops):
             print(f'train epoch: {i + 1}')
             train_and_eval(comment_model, i)
-        if (i % 2 == 1):
-            comment_model.evaluate()
         
         comment_model.save()
         del comment_model

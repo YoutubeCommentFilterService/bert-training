@@ -40,6 +40,8 @@ class TrainModel():
         self.model_path = f"{save_path}/{model_type}_model"
         self._tokenizer = AutoTokenizer.from_pretrained(f"{save_path}/tokenizer")
 
+        self.scaler = torch.amp.GradScaler(self.device)
+
         self._assign_pandas_data(data)
         self._load_model(self.model_path, train_model_name)
 
@@ -82,12 +84,12 @@ class TrainModel():
                 stratify=self._label_pd
             )
         
-    def _generate_scheduler(self):
-        training_steps = len(self._train_loader) * self.epoches
+    def _generate_scheduler(self, loop_size: int = 3):
+        training_steps = len(self._train_loader) * self.epoches * loop_size
         self.scheduler = get_scheduler(
             'linear',
             optimizer=self._optimizer,
-            num_warmup_steps=0,
+            num_warmup_steps=int(training_steps * 0.1),
             num_training_steps=training_steps
         )
 
@@ -144,14 +146,16 @@ class TrainModel():
 
     def is_valid_model_dir(self, path: str) -> bool:
         return os.path.isdir(path) and any(os.scandir(path))
+    
+    def set_scheduler(self, loop_size: int):
+        self._generate_loader()
+        self._generate_scheduler(loop_size)
 
     # 학습
-    def train(self):
+    def train(self, loop: int):
         self._model.to(self.device)
         self._generate_loader()
-        self._generate_scheduler()
 
-        scaler = torch.amp.GradScaler(self.device)
         for epoch in range(self.epoches):
             self._model.train()
             loop = tqdm(self._train_loader, desc=f'  {self.model_type} Epoch {epoch}', leave=True)
@@ -164,9 +168,9 @@ class TrainModel():
                     outputs = self._model(**batch)
                     loss = outputs.loss
 
-                scaler.scale(loss).backward()
-                scaler.step(self._optimizer)
-                scaler.update()
+                self.scaler.scale(loss).backward()
+                self.scaler.step(self._optimizer)
+                self.scaler.update()
                 self.scheduler.step()
 
                 loop.set_postfix(loss=loss.item())
@@ -176,6 +180,8 @@ class TrainModel():
 
             if epoch % 2 == 1:
                 self.evaluate()
+        if (epoch % 2 == 0):
+            self.evaluate()
 
     # 검증
     def evaluate(self) -> Union[float, str]:

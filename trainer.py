@@ -19,10 +19,10 @@ from helpers.s3_helper import S3Helper
 
 project_root_path = Path(__file__).parent
 
-def train_and_eval(model:TrainModel, epoch:int) -> None:
+def train_and_eval(model:TrainModel, loop:int) -> None:
     print(f' {model.model_type}')
-    model.train()
-    if epoch % 2 == 1:
+    model.train(loop)
+    if loop % 2 == 1:
         model.evaluate()
     torch.cuda.empty_cache()
 
@@ -124,7 +124,9 @@ if __name__ == "__main__":
 
         for i in range(nickname_train_loops):
             print(f'train epoch: {i + 1}')
-            train_and_eval(nickname_model, nickname_train_epoches)
+            train_and_eval(nickname_model, i)
+        if (i % 2 == 1):
+            nickname_model.evaluate()
         
         nickname_model.save()
         del nickname_model
@@ -134,7 +136,9 @@ if __name__ == "__main__":
 
         for i in range(comment_train_loops):
             print(f'train epoch: {i + 1}')
-            train_and_eval(comment_model, comment_train_epoches)
+            train_and_eval(comment_model, i)
+        if (i % 2 == 1):
+            comment_model.evaluate()
         
         comment_model.save()
         del comment_model

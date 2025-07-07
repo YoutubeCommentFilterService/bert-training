@@ -33,7 +33,6 @@ class TextPreprocessingType(TypedDict):
     punct: Dict[str, Pattern]
     emoji: EmojiType
     special_token: List[Tuple[str, str]]
-    preprocessing: List[Tuple[str, str]]
 
 class PathType(TypedDict):
     normalized: str
@@ -94,8 +93,6 @@ class TextNormalizator:
         def trace_error(df: pd.DataFrame, cnt: int):
             print(cnt)
             return df
-        
-        df = self._pre_processing_tokens(df)
         
         # 일단 전처리
         df = self._normalize_unicode(df)
@@ -163,9 +160,6 @@ class TextNormalizator:
         for super_key, item_dict in self.normalize_type['structed'].items():
             for key, regex_list in item_dict.items():
                 self.normalize_type['structed'][super_key][key] = [ re.compile(regex) for regex in regex_list ]
-
-        for idx, item in enumerate(self.normalize_type['preprocessing']):
-            self.normalize_type['preprocessing'][idx] = [re.compile(item[0]), item[1]]
         
         with open(self.path['text_face_emoji'], 'r', encoding='utf-8') as f:
             self.text_face_emoji = [ line.strip() for line in f.readlines() if line ]
@@ -187,11 +181,6 @@ class TextNormalizator:
             self.path['text_face_emoji'] = path
         elif type =='tokenizer':
             self.path['tokenizer'] = path
-
-    def _pre_processing_tokens(self, df: pd.DataFrame):
-        for item in self.normalize_type['preprocessing']:
-            df['comment'] = df['comment'].str.replace(item[0], item[1], regex=True)
-        return df
 
     def _normalize_unicode_text(self, text: str) -> str:
         unicode_single_hangul_dict = self.normalize_type['single']['ko']
@@ -238,7 +227,7 @@ class TextNormalizator:
                 result.append(text[pos:])
                 break
 
-        text = ' ' .join(result)
+        text = ' '.join(result)
         text = re.sub(r'([\(\[\{]) | ([\)\]\}])', lambda m: m.group(1) or m.group(2), text)
         return text
     
@@ -248,20 +237,21 @@ class TextNormalizator:
                 .str.replace(r'[\u2002\u2003\u2007\u2008]+', ' ', regex=True)
                 .str.replace(r'[\U0001F3FB-\U0001F3FF\uFE0F\u0674\u1160\u200B\u200C\u200D\uFEFF\u2060\u1160]+', '', regex=True)
                 .str.replace(r'\*+', '', regex=True)
-                .str.replace('9글', '구글')
         )
         for key, compiled_pattern in self.normalize_type['punct'].items():
             df['comment'] = df['comment'].str.replace(compiled_pattern, key, regex=True)
         
-        ## 유니코드 문자 정규화 과정
+        ## 유니코드 문자 정규화 과정 <- 여기에서 축약이 발생한다
         df['comment'] = (
             df['comment']
-                .str.replace(r'([ㄱ-ㅎㅏ-ㅣ])\s+', r'\1', regex=True)
+                .str.replace(r'([ㄱ-ㅎㅏ-ㅣ])\s+', r'\1 ', regex=True)
                 .apply(lambda x: self._normalize_unicode_text(x) if isinstance(x, str) else x)
         )
+
         unicode_alphabet_dict = self.normalize_type['single']['en']
         for char, compiled_pattern in unicode_alphabet_dict.items():
             df['comment'] = df['comment'].str.replace(compiled_pattern, char, regex=True)
+
         df['comment'] = df['comment'].str.replace(r'(?i)[cㄷ][o0ㅇ]m', 'com', regex=True)
         df['comment'] = df['comment'].apply(lambda x: ''.join(ch for ch in x if not ('\u4E00' <= ch <= '\u9FFF')))
             
@@ -388,7 +378,6 @@ class TextNormalizator:
         for base, sub in patterns.items():
             df['comment'] = df['comment'].str.replace(rf"([{create_base(base)}])([{sub}]+)", lambda m: process_shrink(m, base), regex=True)
 
-        pass
         return df
     
     def _process_yeocho_font(self, df: pd.DataFrame):
@@ -399,12 +388,23 @@ class TextNormalizator:
             if cho == 'ㅍ':
                 return 'ㅠㅠ'
             return cho + 'ㅠㅠ'
-        yu_f_pattern = r"([후휴푸퓨쿠큐])[푸퓨ㅜㅠ]+"
-        yu_s_pattern = r"ㅍ+[쿠큐푸퓨ㅜㅠ]+"
+        def remove_batchim(match: re.Match):
+            cho, jung, jong = self.decompose_hangul(match.group(1))
+            composed = self.compose_hangul(cho, jung, 0)
+            jong_text = self.jong_list[jong]
+            if (match.group(2) == None):
+                if (jong_text and jong_text in 'ㅋㅎㅊㅍㅌ'):
+                    return composed + ('' if jong == 0 else jong_text) * 2
+                else:
+                    return match.group(1)
+            return composed + (match.group(2)[0] if jong == 0 else jong_text) * 2
+        
+        batchim_pattern = r'([가-힣])([ㅋㅎㅊㅍㅌ]+)?(?=\s|[.?!;)\]}]|$)'
+        yu_f_pattern = r"([후휴푸퓨쿠큐])[쿠큐푸퓨ㅜㅠ]+"
         
         df['comment'] = (
             df['comment']
-                .str.replace(yu_s_pattern, 'ㅠㅠ', regex=True)
+                .str.replace(batchim_pattern, lambda m: remove_batchim(m), regex=True)
                 .str.replace(yu_f_pattern, lambda m: decompose_text(m), regex=True)
         )
         return df

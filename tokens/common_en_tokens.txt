@@ -64,3 +64,9 @@ cam
 fps
 pvp
 recycle
+dopamin
+zone
+strong
+premium
+preimuim
+core

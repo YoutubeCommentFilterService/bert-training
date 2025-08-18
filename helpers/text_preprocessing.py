@@ -101,6 +101,8 @@ class TextNormalizator:
         df = self._normalize_incorrect_grammar(df)
         ## self._process_dan_mo_ja
 
+        df = self._remove_spaces(df)
+
         # 실행
         df = (
             self._sort_punct(df)
@@ -125,6 +127,37 @@ class TextNormalizator:
         # special token 복원용
         for column in df.columns:
             df[column] = df[column].str.replace(r'(\[[a-zA-Z_]+\])', lambda m: m.group(1).upper(), regex=True)
+        return df
+    
+    def _remove_spaces(self, df: pd.DataFrame):
+        def _rm_sp(pattern: Pattern, text: str) -> str:
+            prev = None
+            while prev != text:
+                prev = text
+                text = pattern.sub(r'\1\2', text)
+            return text
+        def _rm_bc(pattern: Pattern, text: str) -> str:
+            while True:
+                matched = pattern.search(text)
+                if not matched:
+                    break
+                cho, jung, jong = self.decompose_hangul(matched.group(1))
+                if jong == self.jong_list.index(matched.group(2)[0]):
+                    text = text[:matched.start(1)] + self.compose_hangul(cho, jung) + ' ' + matched.group(2) + ' ' + text[matched.end(2):]
+                else:
+                    text = text[:matched.start(2)] + ' ' + matched.group(2) + ' ' + text[matched.end(2):]
+            return text
+        batchim_pattern = re.compile(r'([가-힣])([ㅋㅎㅌㅊ]+)')
+        pattern1 = re.compile(r'([ㄱ-ㅎㅏ-ㅣ])[\s0-9\?\!]+([ㄱ-ㅎㅏ-ㅣ])')
+        # pattern2 = re.compile(r'([가-힣])[\s0-9\?\!]+([ㄱ-ㅎㅏ-ㅣ])')
+        # pattern3 = re.compile(r'([ㄱ-ㅎㅏ-ㅣ])[\s0-9\?\!]+([가-힣])')
+        pattern4 = re.compile(r'([가-힣])1+([가-힣])')
+
+        for pattern in [pattern1, pattern4]:
+            df['comment'] = df['comment'].apply(lambda x: _rm_sp(pattern, x) if isinstance(x, str) else x)
+        df['comment'] = df['comment'].apply(lambda x: _rm_bc(batchim_pattern, x) if isinstance(x, str) else x)
+        df['comment'] = df['comment'].apply(lambda x: hangul_jamo.decompose(x) if isinstance(x, str) else x)
+        df['comment'] = df['comment'].apply(lambda x: hangul_jamo.compose(x) if isinstance(x, str) else x)
         return df
 
     def reload(self):
@@ -186,7 +219,6 @@ class TextNormalizator:
         unicode_single_hangul_dict = self.normalize_type['single']['ko']
 
         normalized = hangul_jamo.compose(text)
-        normalized = hangul_jamo.compose(normalized)
         normalized = unicodedata.normalize("NFKC", normalized)
         normalized = ''.join(ch for ch in normalized if not unicodedata.combining(ch))
         normalized = ''.join(unicode_single_hangul_dict.get(ch, ch) for ch in normalized)
@@ -267,7 +299,6 @@ class TextNormalizator:
                 return cho + jung  # 조합 불가한 건 그대로
             jung_idx = self.jung_list.index(jung_char)
             return chr(0xAC00 + cho_idx * 588 + jung_idx * 28)
-        
         df['comment'] = df['comment'].str.replace(r'([ㄱ-ㅎ])[ ,\\]*([A-Za-z])', combine_jamos, regex=True)
         df['comment'] = df['comment'].str.replace(r'(?<!\d)(.)\1{2,}', r'\1\1', regex=True)
         return df
@@ -353,6 +384,8 @@ class TextNormalizator:
     def _process_moum(self, df: pd.DataFrame):
         def process_shrink(match: re.Match, shrink_jung: str):
             base, trail = match.groups(1)
+            if len(trail) == 1:
+                return base + trail
             _, jung, jong = self.decompose_hangul(base)
             if jong == 0 and self.jung_list[jung] in shrink_jung:
                 return base
@@ -388,23 +421,11 @@ class TextNormalizator:
             if cho == 'ㅍ':
                 return 'ㅠㅠ'
             return cho + 'ㅠㅠ'
-        def remove_batchim(match: re.Match):
-            cho, jung, jong = self.decompose_hangul(match.group(1))
-            composed = self.compose_hangul(cho, jung, 0)
-            jong_text = self.jong_list[jong]
-            if (match.group(2) == None):
-                if (jong_text and jong_text in 'ㅋㅎㅊㅍㅌ'):
-                    return composed + ('' if jong == 0 else jong_text) * 2
-                else:
-                    return match.group(1)
-            return composed + (match.group(2)[0] if jong == 0 else jong_text) * 2
         
-        batchim_pattern = r'([가-힣])([ㅋㅎㅊㅍㅌ]+)?(?=\s|[.?!;)\]}]|$)'
         yu_f_pattern = r"([후휴푸퓨쿠큐])[쿠큐푸퓨ㅜㅠ]+"
         
         df['comment'] = (
             df['comment']
-                .str.replace(batchim_pattern, lambda m: remove_batchim(m), regex=True)
                 .str.replace(yu_f_pattern, lambda m: decompose_text(m), regex=True)
         )
         return df
@@ -489,6 +510,7 @@ if __name__ == "__main__":
     # df = pd.DataFrame(lines, columns=['comment'])
 
     # df = _normalize_unicode(df)
+    pd.set_option('display.max_colwidth', None)
 
     df = pd.read_csv('./testset.csv', encoding='utf-8')
     df['nickname'] = df['nickname'].str.strip()

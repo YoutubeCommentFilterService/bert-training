@@ -102,6 +102,7 @@ class TextNormalizator:
         ## self._process_dan_mo_ja
 
         df = self._remove_spaces(df)
+        df['comment'] = df['comment'].str.lower()
 
         # 실행
         df = (
@@ -123,10 +124,13 @@ class TextNormalizator:
         
         # 마지막으로 한번 더 정리
         df = self._normalize_incorrect_grammar(df)
+        df['comment'] = df['comment'].str.replace(r'z{2,}', 'ㅋㅋ', regex=True)
 
         # special token 복원용
         for column in df.columns:
             df[column] = df[column].str.replace(r'(\[[a-zA-Z_]+\])', lambda m: m.group(1).upper(), regex=True)
+
+        df['comment'] = df['comment'].apply(lambda x: hangul_jamo.compose(x) if isinstance(x, str) else x)
         return df
     
     def _remove_spaces(self, df: pd.DataFrame):
@@ -148,16 +152,20 @@ class TextNormalizator:
                     text = text[:matched.start(2)] + ' ' + matched.group(2) + ' ' + text[matched.end(2):]
             return text
         batchim_pattern = re.compile(r'([가-힣])([ㅋㅎㅌㅊ]+)')
-        pattern1 = re.compile(r'([ㄱ-ㅎㅏ-ㅣ])[\s0-9\?\!]+([ㄱ-ㅎㅏ-ㅣ])')
-        # pattern2 = re.compile(r'([가-힣])[\s0-9\?\!]+([ㄱ-ㅎㅏ-ㅣ])')
-        # pattern3 = re.compile(r'([ㄱ-ㅎㅏ-ㅣ])[\s0-9\?\!]+([가-힣])')
-        pattern4 = re.compile(r'([가-힣])1+([가-힣])')
+        pre_process_pattern = re.compile(r'(?:[ㅜㅣ]\s+)+[ㅜㅣ]')
+        pattern1 = re.compile(r'([ㄱ-ㅎㅏ-ㅣ])[\s0-9\?\!]+([ㄱ-ㅎㅏ-ㅣ])') # 이거때문에 ㅜ ㅜ ㅜ ㅜ 가 처리되지 않는 문제가 발생, 전처리로 "(?:ㅜ\\s+)+ㅜ 를 다른 것으로 처리"
+        pattern2 = re.compile(r'([가-힣])1+([가-힣])') # <-- [^] 형식으로 안맞는건 제외
 
-        for pattern in [pattern1, pattern4]:
+        df['comment'] = df['comment'].str.replace(pre_process_pattern, 'TEMP_U', regex=True)
+        for pattern in [pattern1, pattern2]:
             df['comment'] = df['comment'].apply(lambda x: _rm_sp(pattern, x) if isinstance(x, str) else x)
+        df['comment'] = df['comment'].str.replace('TEMP_U', 'ㅜ ㅜ ㅜ')
+        
         df['comment'] = df['comment'].apply(lambda x: _rm_bc(batchim_pattern, x) if isinstance(x, str) else x)
+        df['comment'] = df['comment'].str.replace(r'([ㄱ-ㅎㅏ-ㅣ]+)', r' \1 ', regex=True)
         df['comment'] = df['comment'].apply(lambda x: hangul_jamo.decompose(x) if isinstance(x, str) else x)
         df['comment'] = df['comment'].apply(lambda x: hangul_jamo.compose(x) if isinstance(x, str) else x)
+        df['comment'] = df['comment'].str.replace(r'[ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅝㅞㅟㅢㅣ]+', '', regex=True) # ㅠㅜㅡ 제외하고 모든 단독 모음 제거
         return df
 
     def reload(self):
@@ -170,11 +178,11 @@ class TextNormalizator:
         self.char_compiled = re.compile(r'(' + '|'.join(re.escape(k) for k in char_patterns.keys()) + r')')
         self.word_compiled = re.compile(r'(' + '|'.join(re.escape(k) for k in word_patterns.keys()) + r')')
 
-        for idx, item in enumerate(self.normalize_type['incorrect']['sentence']):
-            self.normalize_type['incorrect']['sentence'][idx] = [re.compile(item[0]), item[1]]
-
         for idx, item in enumerate(self.normalize_type['incorrect']['sentence_eval']):
             self.normalize_type['incorrect']['sentence_eval'][idx] = [re.compile(item[0]), eval(item[1])]
+
+        for idx, item in enumerate(self.normalize_type['incorrect']['sentence']):
+            self.normalize_type['incorrect']['sentence'][idx] = [re.compile(item[0]), item[1]]
 
         for key, val in self.normalize_type['single']['en'].items():
             self.normalize_type['single']['en'][key] = re.compile(val)
@@ -267,7 +275,7 @@ class TextNormalizator:
         df['comment'] = (
             df['comment'] # \u2640\u2642\u2695\u2696\u2708\u2764 - ♀, ♂, ⚕, ⚖, ✈, ❤ 기호
                 .str.replace(r'[\u2002\u2003\u2007\u2008]+', ' ', regex=True)
-                .str.replace(r'[\U0001F3FB-\U0001F3FF\uFE0F\u0674\u1160\u200B\u200C\u200D\uFEFF\u2060\u1160]+', '', regex=True)
+                .str.replace(r'[\U0001F3FB-\U0001F3FF\uFE0F\u0674\u1160\u200B\u200C\u200D\uFEFF\u2060]+', '', regex=True)
                 .str.replace(r'\*+', '', regex=True)
         )
         for key, compiled_pattern in self.normalize_type['punct'].items():
@@ -288,18 +296,18 @@ class TextNormalizator:
         df['comment'] = df['comment'].apply(lambda x: ''.join(ch for ch in x if not ('\u4E00' <= ch <= '\u9FFF')))
             
         ## 특정 포맷으로 적은 한글 문자열을 변환
-        JUNG_MAPPING = {
-            'H': 'ㅐ', 'I': 'ㅣ', 'l': 'ㅣ'
-        }
-        def combine_jamos(match: re.Match):
-            cho, jung = match.groups()
-            cho_idx = self.cho_list.index(cho) if cho in self.cho_list else -1
-            jung_char = JUNG_MAPPING.get(jung)
-            if cho_idx == -1 or jung_char not in self.jung_list:
-                return cho + jung  # 조합 불가한 건 그대로
-            jung_idx = self.jung_list.index(jung_char)
-            return chr(0xAC00 + cho_idx * 588 + jung_idx * 28)
-        df['comment'] = df['comment'].str.replace(r'([ㄱ-ㅎ])[ ,\\]*([A-Za-z])', combine_jamos, regex=True)
+        # JUNG_MAPPING = {
+        #     'H': 'ㅐ', 'I': 'ㅣ', 'l': 'ㅣ'
+        # }
+        # def combine_jamos(match: re.Match):
+        #     cho, jung = match.groups()
+        #     cho_idx = self.cho_list.index(cho) if cho in self.cho_list else -1
+        #     jung_char = JUNG_MAPPING.get(jung)
+        #     if cho_idx == -1 or jung_char not in self.jung_list:
+        #         return cho + jung  # 조합 불가한 건 그대로
+        #     jung_idx = self.jung_list.index(jung_char)
+        #     return chr(0xAC00 + cho_idx * 588 + jung_idx * 28)
+        # df['comment'] = df['comment'].str.replace(r'([ㄱ-ㅎ])[ ,\\]*([A-Za-z])', combine_jamos, regex=True)
         df['comment'] = df['comment'].str.replace(r'(?<!\d)(.)\1{2,}', r'\1\1', regex=True)
         return df
     
@@ -443,10 +451,10 @@ class TextNormalizator:
                     .str.replace(self.char_compiled, lambda m: char_patterns[m.group(1)], regex=True)
             )
 
-            for pattern, to_sub in sentence_patterns:
-                df[column] = df[column].str.replace(pattern, to_sub, regex=True)
             for pattern, to_sub_eval in sentence_eval_patterns:
                 df[column] = df[column].str.replace(pattern, to_sub_eval, regex=True)
+            for pattern, to_sub in sentence_patterns:
+                df[column] = df[column].str.replace(pattern, to_sub, regex=True)
         return df
     
     def _set_default_nickname(self, df: pd.DataFrame):
@@ -511,6 +519,7 @@ if __name__ == "__main__":
 
     # df = _normalize_unicode(df)
     pd.set_option('display.max_colwidth', None)
+    pd.set_option('display.max_rows', None)
 
     df = pd.read_csv('./testset.csv', encoding='utf-8')
     df['nickname'] = df['nickname'].str.strip()

@@ -1,35 +1,32 @@
-def save_pretty_json(dict_data: dict, filename: str, max_per_line: int = 70):
-    dict_data = dict(sorted(dict_data.items(), key=lambda x: (-len(x[0]), x[0][0])))
-    print(dict_data)
-    filename = filename if filename.endswith('.json') else filename + '.json'
-    with open(filename, 'w', encoding='utf-8') as f:
-        f.write('{\n')
+def save_pretty_json(dict_data: dict):
+    output_str = ''
+    for key, value in dict_data.items():
+        dict_data = dict(sorted(value.items(), key=lambda x: (-len(x[0]), x[0][0])))
+        output_str += f'\t\t"{key}": {{\n'
         iloc = 0
         for idx, (key, value) in enumerate(dict_data.items()):
             if iloc == 0:
-                f.write('\t\t\t')
-            write_data = f'"{key}": "{value}"'
+                output_str += '\t\t\t'
+            write_data = f'"{key}": "{value}"{", " if idx != len(dict_data) - 1 else ""}'
             iloc += len(write_data)
-            if idx != len(dict_data) - 1:
-                iloc += len(", ")
-                write_data += ", "
-            f.write(write_data)
-            if iloc >= max_per_line:
-                f.write('\n')
+            output_str += write_data
+            if iloc >= 65:
+                output_str += '\n'
                 iloc = 0
         if iloc != 0:
-            f.write('\n')
-        f.write('\t\t}')
+            output_str += '\n'
+        output_str += '\t\t},\n'
 
+    with open('pretty_formated_output.json', 'w', encoding='utf-8') as f:
+        f.write(output_str.rstrip())
 
 import json
 with open('../tokens/text_preprocessing.json', 'r', encoding='utf-8') as f:
     obj = json.load(f)
 
 incorrect = obj['incorrect']
-char = incorrect['char']
-word = incorrect['word']
-
-
-save_pretty_json(char, 'test_1.json')
-save_pretty_json(word, 'test_2.json')
+data = {
+    'char': incorrect['char'],
+    'word': incorrect['word'],
+}
+save_pretty_json(data)

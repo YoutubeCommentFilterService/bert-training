@@ -20,8 +20,7 @@ origin_datas = datas.copy(True)
 normalizator = TextNormalizator()
 normalizator.run_text_preprocessing(datas)
 
-if not os.path.exists('./unk_data'):
-    os.makedirs('./unk_data')
+os.makedirs('./unk_data', exist_ok=True)
 
 
 with open('./unk_data/datas', 'w', encoding='utf-8') as f:

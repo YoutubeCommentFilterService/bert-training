@@ -31,11 +31,21 @@ class S3Helper:
                                                max_concurrency=10,
                                                use_threads=True)
 
-    def upload(self, local_fpaths: List[str] = [], s3_fpaths: List[str] = [], from_local: bool=False):
-        if from_local:
-            local_fpaths = [str(file) for file in Path('model').rglob('*') if file.is_file() and file.name != 'dataset.csv']
-            s3_fpaths = [fpath[len(self.save_s3_file_root_path)+1:] for fpath in local_fpaths]
-            
+    def upload(self, local_fpaths: List[str] = []):
+        if len(local_fpaths) == 0:
+            local_fpaths.extend(str(file) for file in Path('model').rglob('*') if file.is_file() and file.name != 'dataset.csv')
+        else:
+            temp = []
+            local_fpaths = [ path.replace('/home/sh/youtube-comment-colab/', '') for path in local_fpaths ]
+            for path in local_fpaths:
+                if Path(path).is_file():
+                    temp.append(path)
+                else:
+                    temp.extend(str(file) for file in Path(path).rglob('*') if file.is_file() and file.name != 'dataset.csv')
+            local_fpaths = temp
+        
+        s3_fpaths = [fpath[len(self.save_s3_file_root_path)+1:] for fpath in local_fpaths]
+
         with concurrent.futures.ThreadPoolExecutor() as executor:
             futures = [
                 executor.submit(self._upload_file, local_fpath, s3_fpath) 

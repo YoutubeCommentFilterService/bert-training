@@ -31,26 +31,22 @@ class TokenizeManager():
         return self.tokenizer_path
 
     def update(self):
-        def get_unique_token(path: str, existing_tokens_list: Optional[List[str]]) -> List[str]:
-            def load_tokens_list(path: str) -> List[str]:
-                try:
-                    with open(path, 'r', encoding='utf-8') as f:
-                        return list(dict.fromkeys([line.strip() for line in f if line.strip()]))
-                except FileNotFoundError:
-                    return []
-            more_tokens_list = load_tokens_list(path)
-            exsiting_tokens_set = set(existing_tokens_list)
-            return [ x for x in more_tokens_list if x not in exsiting_tokens_set ]
+        def load_tokens_list(path: str) -> set[str]:
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    return set([line.strip() for line in f if line.strip()])
+            except FileNotFoundError:
+                return set()
         
         tokenizer = AutoTokenizer.from_pretrained(self.train_model_name)
 
         unique_special_tokens, unique_common_tokens = [], []
 
-        unique_special_tokens.extend(get_unique_token(f'{self.root_project_path}/tokens/special_tokens.txt', tokenizer.additional_special_tokens))
-        unique_common_tokens.extend(get_unique_token(f'{self.root_project_path}/tokens/common_punct_tokens.txt', tokenizer.get_vocab().keys()))
-        unique_common_tokens.extend(get_unique_token(f'{self.root_project_path}/tokens/common_shortcut_tokens.txt', tokenizer.get_vocab().keys()))
-        unique_common_tokens.extend(get_unique_token(f'{self.root_project_path}/tokens/common_word_tokens.txt', tokenizer.get_vocab().keys()))
-        unique_common_tokens.extend(get_unique_token(f'{self.root_project_path}/tokens/common_en_tokens.txt', tokenizer.get_vocab().keys()))
+        unique_special_tokens.extend(load_tokens_list(f'{self.root_project_path}/tokens/special_tokens.txt'))
+        unique_common_tokens.extend(load_tokens_list(f'{self.root_project_path}/tokens/common_punct_tokens.txt'))
+        unique_common_tokens.extend(load_tokens_list(f'{self.root_project_path}/tokens/common_shortcut_tokens.txt'))
+        unique_common_tokens.extend(load_tokens_list(f'{self.root_project_path}/tokens/common_word_tokens.txt'))
+        unique_common_tokens.extend(load_tokens_list(f'{self.root_project_path}/tokens/common_en_tokens.txt'))
 
         if unique_special_tokens:
             tokenizer.add_special_tokens({'additional_special_tokens': unique_special_tokens})

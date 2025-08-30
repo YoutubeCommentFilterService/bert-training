@@ -158,7 +158,7 @@ class TrainModel():
 
         for epoch in range(self.epoches):
             self._model.train()
-            loop = tqdm(self._train_loader, desc=f'  {self.model_type} Epoch {epoch}', leave=True)
+            loop = tqdm(self._train_loader, desc=f'  {self.model_type} Epoch {epoch+1}', leave=True)
             for batch in loop:
                 batch = {key: val.to(self.device) for key, val in batch.items()}
 

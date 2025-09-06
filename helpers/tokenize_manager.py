@@ -47,6 +47,7 @@ class TokenizeManager():
         unique_common_tokens.extend(load_tokens_list(f'{self.root_project_path}/tokens/common_shortcut_tokens.txt'))
         unique_common_tokens.extend(load_tokens_list(f'{self.root_project_path}/tokens/common_word_tokens.txt'))
         unique_common_tokens.extend(load_tokens_list(f'{self.root_project_path}/tokens/common_en_tokens.txt'))
+        unique_common_tokens.extend(load_tokens_list(f'{self.root_project_path}/tokens/common_monde_tokens.txt'))
 
         if unique_special_tokens:
             tokenizer.add_special_tokens({'additional_special_tokens': unique_special_tokens})

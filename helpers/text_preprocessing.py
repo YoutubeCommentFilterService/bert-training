@@ -93,8 +93,11 @@ class TextNormalizator:
         def trace_error(df: pd.DataFrame, cnt: int):
             print(cnt)
             return df
-        
-        # 일단 전처리
+        # 문법 수정 전 우선 수행되어야 하는 전처리들
+        # 닉네임 전처리
+        for column in df.columns:
+            df[column] = df[column].str.lower()
+        df = self._clean_nickname(df)
         df = self._normalize_unicode(df)
 
         # 스팸 형식 제거
@@ -116,21 +119,24 @@ class TextNormalizator:
                 .pipe(self._clean_duplicated_token)
         )
         df = (
-            self._clean_nickname(df)
-                .pipe(self._remove_num_end_with)
+            self._remove_num_end_with(df)
                 .pipe(self._remove_isolated_english)
                 .pipe(self._set_default_nickname)
         )
         
-        # 마지막으로 한번 더 정리
-        df = self._normalize_incorrect_grammar(df)
         df['comment'] = df['comment'].str.replace(r'z{2,}', 'ㅋㅋ', regex=True)
-
         # special token 복원용
         for column in df.columns:
             df[column] = df[column].str.replace(r'(\[[a-zA-Z_]+\])', lambda m: m.group(1).upper(), regex=True)
-
         df['comment'] = df['comment'].apply(lambda x: hangul_jamo.compose(x) if isinstance(x, str) else x)
+
+        # df['nickname'] = df['nickname'].mask(
+        #     ~df['nickname'].str.startswith('[', na=False),
+        #     df['nickname'].str.lower()
+        # )
+
+        # 마지막으로 한번 더 정리
+        # df = self._normalize_incorrect_grammar(df)
         return df
     
     def _remove_spaces(self, df: pd.DataFrame):
@@ -368,14 +374,6 @@ class TextNormalizator:
         return df
     
     def _clean_nickname(self, df: pd.DataFrame):
-        def remove_hyphen_or_underscore_format(text: str) -> str:
-            pattern = r'[\-_][a-zA-Z0-9]{2,7}$'
-
-            while matched := re.search(pattern, text):
-                text = text[:matched.span(0)[0]]
-
-            return text
-        
         df['nickname'] = (
             df['nickname']
                 .str.strip()
@@ -383,7 +381,8 @@ class TextNormalizator:
                 .str.replace(r'[^a-zA-Z가-힣0-9\-._]+', '', regex=True)
                 .str.replace(r'^user-([a-z0-9]+)$', lambda m: '' if len(m.group(1)) % 2 == 1 or len(m.group(1)) > 7 else m.group(0), regex=True)
                 .str.replace(r'^user-([a-zA-Z0-9가-힣\-._]+)$', r'\1', regex=True)
-                .apply(lambda x: remove_hyphen_or_underscore_format(x) if isinstance(x, str) else x)
+                .str.replace(r'[\-_][a-zA-Z0-9]{3,}$', '', regex=True)
+                .str.replace(r'(.)\1+', r'\1\1', regex=True)
         )
         df['nickname'] = df['nickname'].str.replace(r'[^a-zA-Z가-힣0-9]+', '', regex=True)
 
@@ -459,7 +458,9 @@ class TextNormalizator:
     
     def _set_default_nickname(self, df: pd.DataFrame):
         def _change_nickname(nickname: str):
-            if re.search(r'^[a-zA-Z0-9\-_.]+$', nickname):
+            if len(nickname) == 0:
+                return '[DEFAULT_NICK]'
+            elif re.search(r'^[a-zA-Z0-9\-_.]+$', nickname):
                 return '[DEFAULT_NICK]'
             elif re.search(r'[가-힣]', nickname) and len(nickname) < 3:
                 return '[DEFAULT_NICK]'
@@ -469,7 +470,7 @@ class TextNormalizator:
         return df
     
     def _remove_isolated_english(self, df: pd.DataFrame):
-        df['nickname'] = df['nickname'].str.replace(r'(?<=[가-힣])([a-zA-Z])(?=[가-힣])(?!양)', '', regex=True)
+        df['nickname'] = df['nickname'].str.replace(r'(?<=[가-힣])([a-zA-Z])(?=[가-힣])(?!양|컵)', '', regex=True)
         return df
     
     def _remove_num_end_with(self, df: pd.DataFrame):

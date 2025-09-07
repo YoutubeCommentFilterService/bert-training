@@ -12,6 +12,7 @@ class IncorrectType(TypedDict):
     char: Dict[str, str]
     word: Dict[str, str]
     sentence: List[Tuple[str, str]]
+    monde: List[Tuple[str, str]]
     sentence_eval: List[Tuple[str, Callable]] # eval(['sentencce_eval'][N][1]) 로 사용하면 됨
 
 class StructedType(TypedDict):
@@ -189,6 +190,9 @@ class TextNormalizator:
 
         for idx, item in enumerate(self.normalize_type['incorrect']['sentence']):
             self.normalize_type['incorrect']['sentence'][idx] = [re.compile(item[0]), item[1]]
+
+        for idx, item in enumerate(self.normalize_type['incorrect']['monde']):
+            self.normalize_type['incorrect']['monde'][idx] = [re.compile(item[0]), item[1]]
 
         for key, val in self.normalize_type['single']['en'].items():
             self.normalize_type['single']['en'][key] = re.compile(val)
@@ -442,6 +446,7 @@ class TextNormalizator:
         word_patterns = self.normalize_type['incorrect']['word']
         sentence_patterns = self.normalize_type['incorrect']['sentence']
         sentence_eval_patterns = self.normalize_type['incorrect']['sentence_eval']
+        monde_patterns = self.normalize_type['incorrect']['monde']
 
         for column in df.columns:
             df[column] = (
@@ -450,10 +455,12 @@ class TextNormalizator:
                     .str.replace(self.char_compiled, lambda m: char_patterns[m.group(1)], regex=True)
             )
 
-            for pattern, to_sub_eval in sentence_eval_patterns:
-                df[column] = df[column].str.replace(pattern, to_sub_eval, regex=True)
+            for pattern, to_sub in monde_patterns:
+                df[column] = df[column].str.replace(pattern, to_sub, regex=True)
             for pattern, to_sub in sentence_patterns:
                 df[column] = df[column].str.replace(pattern, to_sub, regex=True)
+            for pattern, to_sub_eval in sentence_eval_patterns:
+                df[column] = df[column].str.replace(pattern, to_sub_eval, regex=True)
         return df
     
     def _set_default_nickname(self, df: pd.DataFrame):

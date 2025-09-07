@@ -75,6 +75,7 @@ ebs
 edge
 edition
 election
+emi
 emp
 enjoy
 entertainment
@@ -93,6 +94,7 @@ fps
 gdp
 gg
 gi
+gmail
 gms
 go
 goat
@@ -131,8 +133,10 @@ lck
 legend
 limited
 love
+m2
 mad
 magic
+mail
 maple
 mask
 master
@@ -204,6 +208,7 @@ salt
 san
 scp
 sea
+serendipity
 serenditipy
 sff
 sha
@@ -226,6 +231,7 @@ standard
 stat
 story
 strong
+sub
 sweet
 tamer
 tft
@@ -246,6 +252,7 @@ tws
 uhd
 ui
 ultimate
+update
 uqhd
 urf
 user
@@ -267,4 +274,3 @@ yoon
 youtube
 youtuber
 zone
-serendipity

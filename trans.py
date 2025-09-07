@@ -11,3 +11,4 @@ def sort_file(path: str):
 sort_file('./tokens/common_word_tokens.txt')
 sort_file('./tokens/common_shortcut_tokens.txt')
 sort_file('./tokens/common_en_tokens.txt')
+sort_file('./tokens/common_monde_tokens.txt')
